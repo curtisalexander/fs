@@ -5,6 +5,6 @@
 # has changed since — i.e. when a page is due for a re-read.
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
-docs/index.html	docs/00-map.md,docs/prerequisites.md	3c6df3a
-docs/prerequisites.html	docs/prerequisites.md	PENDING
-docs/diagrams.html	docs/00-map.md	PENDING
+docs/index.html	docs/00-map.md,docs/prerequisites.md	c390dd7
+docs/prerequisites.html	docs/prerequisites.md	c390dd7
+docs/diagrams.html	docs/00-map.md	c390dd7
