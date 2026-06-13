@@ -48,6 +48,46 @@
   </div>
 </section>
 
+<section id="tokenizer">
+  <div class="container">
+    <p class="eyebrow">Milestone M0 · the first and last thing every prompt touches</p>
+    <h2>Tokenizer: text becomes numbers</h2>
+    <p class="prose">Before the model sees anything, text is split into integer
+      <strong>token IDs</strong> from a learned vocabulary — common chunks become one
+      token, rare ones split into pieces. Type below and watch it tokenize. This is a
+      <em>toy</em> byte-pair encoder with a tiny merge table; the real M0 tokenizer
+      uses a learned vocabulary of tens of thousands of merges.</p>
+
+    <div class="explorer">
+      <div class="control" style="margin-bottom:1rem">
+        <label for="tok-input">your text</label>
+        <input type="text" id="tok-input" value="the cat sat on the mat" autocomplete="off"
+               style="width:100%;font-family:var(--mono);font-size:1rem;padding:.55rem .7rem;border-radius:8px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text)">
+      </div>
+      <div class="tok-stream" id="tok-stream"></div>
+      <p class="attn-caption" id="tok-stats"></p>
+    </div>
+
+    <div class="prose">
+      <h3>What you’re seeing</h3>
+      <ul>
+        <li>Each chip is one <strong>token</strong>; the small number is its
+          <strong>ID</strong> — an index into the vocabulary. The model only ever sees
+          these IDs, never the letters.</li>
+        <li>Spaces are tokens too (the dim <code>␣</code> chips). Whitespace and casing
+          change the tokens, which is why they matter.</li>
+        <li><strong>Byte-pair encoding</strong> starts from single characters and keeps
+          merging the most common adjacent pair, so frequent words collapse to one
+          token while unusual strings stay in pieces.</li>
+      </ul>
+      <div class="cites">
+        <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.2 (p.46)</span>
+        <span class="chip chip--ds4">🔧 ds4 · rax.c (radix-tree vocab)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="sampling">
   <div class="container">
     <p class="eyebrow">Milestone M3 · the last step of every token</p>
@@ -151,15 +191,58 @@
   </div>
 </section>
 
+<section id="kvcache">
+  <div class="container">
+    <p class="eyebrow">Milestone M4 · why decode isn’t quadratic</p>
+    <h2>The KV cache: don’t recompute the past</h2>
+    <p class="prose">To produce the next token, attention needs the keys and values of
+      every earlier token. Recomputing them at every step would be quadratic waste — so
+      we <strong>cache</strong> each token’s K/V once and reuse it. Step through
+      generation and watch the difference.</p>
+
+    <div class="explorer">
+      <div class="attn-controls">
+        <button class="btn btn--primary" id="kv-step" type="button">▶ Decode next token</button>
+        <button class="btn" id="kv-reset" type="button">Reset</button>
+        <label class="toggle"><input type="checkbox" id="kv-on" checked> use the KV cache</label>
+      </div>
+      <div class="kv-cache" id="kv-cache"></div>
+      <p class="attn-caption" id="kv-step-note"></p>
+      <div class="kv-tally" id="kv-tally"></div>
+    </div>
+
+    <div class="prose">
+      <h3>What you’re seeing</h3>
+      <ul>
+        <li>Each cell is one token’s cached <strong>K/V</strong>. The
+          <span style="color:var(--ember-hi)">glowing</span> cells are the ones
+          actually computed this step.</li>
+        <li>With the cache <strong>on</strong>, each decode step computes K/V for just
+          <strong>one</strong> new token. With it <strong>off</strong>, every step
+          recomputes the whole sequence.</li>
+        <li>Watch the totals diverge: cached work grows <em>linearly</em>, uncached work
+          grows <em>quadratically</em>. That gap is what keeps long generations
+          practical.</li>
+      </ul>
+      <div class="cites">
+        <span class="chip chip--book">📖 Inference Engineering (Kiely) · §5.3 Caching (p.136)</span>
+        <span class="chip chip--ds4">🔧 ds4 · ds4_kvstore.c, dsv4_kv.metal</span>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="coming">
   <div class="container prose">
     <p class="eyebrow">On the way</p>
     <h2>Diagrams we want to build next</h2>
     <ul>
-      <li><strong>The KV cache</strong> — see why decode does one token’s work instead
-        of reprocessing the whole sequence.</li>
-      <li><strong>BPE tokenizer playground</strong> — type text, watch it split into
-        token IDs (a live preview of <strong>M0</strong>).</li>
+      <li><strong>RoPE</strong> — how a token’s position gets baked in by rotating its
+        query and key vectors.</li>
+      <li><strong>RMSNorm &amp; the residual stream</strong> — what keeps a deep stack of
+        blocks numerically stable.</li>
+      <li><strong>Quantization</strong> — packing 16-bit weights into 4 bits, and what
+        it costs (a preview of <strong>M5</strong>).</li>
     </ul>
     <p>These arrive as their milestones land — see the
       <a href="./index.html#ladder">abstraction ladder</a> for where each one sits.</p>

@@ -357,3 +357,26 @@ html[data-theme="light"] .ic-moon { display: inline; }
   background: linear-gradient(90deg, var(--ember), var(--rust));
   border-radius: 0 2px 2px 0; transition: width .25s; }
 .attn-caption { margin-top: 1rem; color: var(--text-dim); font-size: .95rem; }
+
+/* ---- Tokenizer playground (diagrams) -------------------------------------- */
+.tok-stream { display: flex; flex-wrap: wrap; gap: .3rem; margin: 1rem 0; min-height: 2.6rem; }
+.tok-chip { display: inline-flex; flex-direction: column; align-items: center;
+  border: 1px solid var(--border-2); border-radius: 6px; padding: .25rem .45rem;
+  background: var(--surface-2); }
+.tok-chip .tok-text { font-family: var(--mono); font-size: .92rem; color: var(--text);
+  white-space: pre; }
+.tok-chip .tok-id { font-family: var(--mono); font-size: .62rem; color: var(--text-mute);
+  margin-top: .1rem; }
+.tok-chip.space { opacity: .55; }
+
+/* ---- KV cache stepper (diagrams) ------------------------------------------ */
+.kv-cache { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1.2rem 0; min-height: 2.8rem; }
+.kv-cell { min-width: 3rem; height: 2.8rem; display: flex; align-items: center;
+  justify-content: center; padding: 0 .4rem; border-radius: 8px; font-family: var(--mono);
+  font-size: .82rem; border: 1px solid var(--border-2); background: var(--surface-2);
+  color: var(--text-dim); transition: background .2s, color .2s, border-color .2s; }
+.kv-cell.computed { background: linear-gradient(180deg, var(--ember), var(--rust));
+  color: #1a120a; border-color: transparent; }
+.kv-tally { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; margin-top: .8rem;
+  font-family: var(--mono); font-size: .85rem; color: var(--text-dim); }
+.kv-tally b { color: var(--ember); }

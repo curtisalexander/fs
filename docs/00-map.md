@@ -6,7 +6,7 @@ Engineering* (the book), **(b)** the file in `ds4` that implements it for real,
 and **(c)** Raschka's writing for architecture context.
 
 > **New here?** Read [`prerequisites.md`](prerequisites.md) first — what to know
-> before diving in (and what we'll teach you). It also expands this map's ladder
+> before diving in (and what we'll demonstrate). It also expands this map's ladder
 > into "which idea each rung needs."
 
 > **How to use this doc.** It's organized as an **abstraction ladder** — from the

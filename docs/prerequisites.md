@@ -21,7 +21,7 @@ and a knowledge-map you can use to find your own gaps.
   spend an hour with a resource below; you don't need mastery.
 - 🟡 **Helpful — brush up as you go.** Nice to have seen once; you can learn it
   *while* following along.
-- 🔵 **We'll teach you.** Come curious, be ready to dig in. Showing up knowing these
+- 🔵 **What we'll demonstrate.** Come curious, be ready to dig in. Showing up knowing these
   would defeat the purpose.
 
 ---
@@ -45,7 +45,7 @@ and a knowledge-map you can use to find your own gaps.
 | **Probability / sampling basics** | "A distribution over the next token," temperature, top-k/top-p. | Karpathy, *Let's build GPT* (sampling part) |
 | **Memory layout / mmap / FFI (idea only)** | Why row-major contiguous arrays matter; what "map a file into memory" and "call C/Obj-C from Rust" mean. | learning 01; we go deeper at M1/M6 |
 
-## 🔵 We'll teach you (don't pre-study these)
+## 🔵 What we'll demonstrate (don't pre-study these)
 
 Attention mechanics in detail · **RoPE** (positions) · **RMSNorm** · **GQA**
 (grouped-query attention) · **SwiGLU** FFN · the **KV cache** · **quantization** ·
