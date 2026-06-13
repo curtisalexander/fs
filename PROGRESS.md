@@ -41,6 +41,20 @@
   alongside the working markdown; `.nojekyll` keeps the `.md` inert.
 - HTML ≠ markdown auto-conversion; keep them "kinda in sync" via **drift detection**.
 
+**Continued (same day) — diagrams, polish, logo:**
+- **Four interactive diagrams** now live on `diagrams.html`, each real math on toy
+  data: **tokenizer** (toy BPE, M0), **sampling** (softmax + temp/top-k/top-p, M3),
+  **attention** (scaled-dot-product + causal-mask toggle, M2), **KV cache** (decode
+  stepper, linear-vs-quadratic tally, M4). Logic in `assets/js/diagrams.js`.
+- **`prerequisites.html`** distilled; **light/dark toggle** added site-wide
+  (tokenized palette, no-flash init respecting `prefers-color-scheme`, persisted).
+- **Logo finalized:** chibi sad-star + brown-dwarf glow/motes/spark
+  (`docs/assets/logo/star.svg`); mono favicon; added to README header.
+- **Tone + clarity pass:** cut over-the-top lines; citation chips now name the book
+  ("Inference Engineering (Kiely)"); renamed the 🔵 tier "We'll teach you" →
+  "What we'll demonstrate"; reworked the hero tagline.
+- Pref noted in memory: **always use `rg`**, not grep.
+
 **Next session (M0 — tokenizer):** *(unchanged from below)*
 
 ---
