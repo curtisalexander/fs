@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Diagrams — Failed Star</title>
+<meta name="description" content="Interactive, in-browser previews of the concepts Failed Star will build — starting with how logits become a token.">
+<meta name="fs-distills" content="docs/00-map.md">
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="./index.html">Home</a>
+      <a href="./prerequisites.html">Prerequisites</a>
+      <a href="./diagrams.html" class="current" aria-current="page">Diagrams</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Interactive previews</p>
+    <h2>Diagrams</h2>
+    <p class="lead">This is where the <em>HTML</em> earns its keep: live, in-browser
+      diagrams you can poke at — not screenshots. Each one previews a concept the
+      engine will implement.</p>
+    <div class="preview-banner">
+      <strong>A preview — please be patient.</strong> These diagrams run real math in
+      your browser, but the <em>engine</em> that will produce these numbers for real
+      isn’t built yet. We’re sharing the destination early; the matching code lands at
+      its milestone (the sampler below is <strong>M3</strong>). Think of it as a
+      trailer, not the finished film.
+    </div>
+  </div>
+</section>
+
+<section id="sampling">
+  <div class="container">
+    <p class="eyebrow">Milestone M3 · the last step of every token</p>
+    <h2>From logits to a token: sampling</h2>
+    <p class="prose">The model’s forward pass ends with a <strong>logit</strong> (a raw
+      score) for every word in the vocabulary. To pick the next word we turn those
+      scores into probabilities with <strong>softmax</strong>, then choose. Three knobs
+      shape that choice — drag them and watch the distribution move. The math here is
+      the <em>real</em> softmax; only the logits are a fixed toy example.</p>
+
+    <div class="explorer">
+      <p class="prompt-line">The cat sat on the <span class="blank" id="blank">___</span></p>
+
+      <div class="controls">
+        <div class="control">
+          <label for="temp">temperature&nbsp;= <b id="temp-val">1.00</b></label>
+          <input type="range" id="temp" min="0.1" max="2" step="0.05" value="1">
+        </div>
+        <div class="control">
+          <label for="topk">top-k&nbsp;= <b id="topk-val">8</b></label>
+          <input type="range" id="topk" min="1" max="8" step="1" value="8">
+        </div>
+        <div class="control">
+          <label for="topp">top-p&nbsp;= <b id="topp-val">1.00</b></label>
+          <input type="range" id="topp" min="0.1" max="1" step="0.05" value="1">
+        </div>
+      </div>
+
+      <div class="dist" id="dist"><!-- token rows rendered by JS --></div>
+
+      <div class="sample-row">
+        <button class="btn btn--primary" id="sample-btn" type="button">🎲 Sample a token</button>
+        <span class="sample-out" id="sample-out"></span>
+      </div>
+    </div>
+
+    <div class="prose">
+      <h3>What each knob does</h3>
+      <ul>
+        <li><strong>Temperature</strong> divides the logits before softmax. Low
+          (→0) <em>sharpens</em> toward the single top token (greedy); high (→2)
+          <em>flattens</em> the distribution so unlikely words get a real chance. Bars
+          above scale with the post-temperature probability, so you can watch them
+          even out as you turn it up.</li>
+        <li><strong>Top-k</strong> keeps only the <em>k</em> highest-probability tokens
+          and discards the rest (dimmed). A hard cap on how many candidates survive.</li>
+        <li><strong>Top-p (nucleus)</strong> keeps the smallest set of tokens whose
+          probabilities add up to <em>p</em> — an <em>adaptive</em> cutoff that keeps
+          more candidates when the model is unsure, fewer when it’s confident.</li>
+      </ul>
+      <p>The survivors are <strong>renormalized to sum to 100%</strong>, and
+        <em>Sample a token</em> draws from that final distribution — exactly what the
+        generation loop will do, one token at a time.</p>
+      <div class="cites">
+        <span class="chip chip--book">📖 Book · §2.2 LLM Inference Mechanics (p.46)</span>
+        <span class="chip chip--ds4">🔧 ds4 · softmax.metal, argsort.metal</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="coming">
+  <div class="container prose">
+    <p class="eyebrow">On the way</p>
+    <h2>Diagrams we want to build next</h2>
+    <ul>
+      <li><strong>Attention</strong> — hover a token, watch it attend to the past
+        (Q·Kᵀ → softmax → ·V).</li>
+      <li><strong>The KV cache</strong> — see why decode does one token’s work instead
+        of reprocessing the whole sequence.</li>
+      <li><strong>BPE tokenizer playground</strong> — type text, watch it split into
+        token IDs (a live preview of <strong>M0</strong>).</li>
+    </ul>
+    <p>These arrive as their milestones land — see the
+      <a href="./index.html#ladder">abstraction ladder</a> for where each one sits.</p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM
+      inference by building it. Next milestone: <strong>M0 — the tokenizer</strong>.</p>
+    <p class="meta">Concepts distilled from <code>docs/00-map.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+<script src="./assets/js/diagrams.js"></script>
+</body>
+</html>

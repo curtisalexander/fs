@@ -6,3 +6,5 @@
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
 docs/index.html	docs/00-map.md,docs/prerequisites.md	3c6df3a
+docs/prerequisites.html	docs/prerequisites.md	PENDING
+docs/diagrams.html	docs/00-map.md	PENDING

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Prerequisites — Failed Star</title>
+<meta name="description" content="What to know before you dive into Failed Star — the honest floor, what's merely helpful, and what we'll teach you.">
+<meta name="fs-distills" content="docs/prerequisites.md">
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="./index.html">Home</a>
+      <a href="./prerequisites.html" class="current" aria-current="page">Prerequisites</a>
+      <a href="./diagrams.html">Diagrams</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Before you dive in</p>
+    <h2>Prerequisites</h2>
+    <p class="lead">This is a <em>learning</em> repo, so the bar is deliberately low —
+      but not zero. Here's the honest floor, what's merely helpful, and what we
+      promise to teach you.</p>
+    <div class="callout">
+      <strong>The single most liberating fact.</strong> Inference is the
+      <strong>forward pass only</strong>. We’re <em>running</em> a model someone else
+      already trained — so <strong>no training, no backpropagation, no gradients, no
+      calculus.</strong> Inference is: look up some vectors, multiply matrices,
+      normalize, pick the most likely next token, repeat. That’s the whole game.
+    </div>
+  </div>
+</section>
+
+<section id="tiers">
+  <div class="container">
+    <p class="eyebrow">How to read the tiers</p>
+    <h2>Three kinds of knowledge</h2>
+    <div class="cards">
+      <div class="card card--floor">
+        <span class="tier-tag">🟢 THE FLOOR</span>
+        <h3>Have a feel for these</h3>
+        <p>Have <em>some</em> feel before starting. If one is shaky, spend an hour with
+          a resource below — you don’t need mastery.</p>
+      </div>
+      <div class="card card--helpful">
+        <span class="tier-tag">🟡 HELPFUL</span>
+        <h3>Brush up as you go</h3>
+        <p>Nice to have seen once. You can pick these up <em>while</em> following
+          along, milestone by milestone.</p>
+      </div>
+      <div class="card card--teach">
+        <span class="tier-tag">🔵 WE’LL TEACH YOU</span>
+        <h3>Come curious, not prepared</h3>
+        <p>Attention, RoPE, RMSNorm, GQA, SwiGLU, the KV cache, quantization, Metal
+          kernels, BPE internals. Each is a milestone with its own doc.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="floor">
+  <div class="container">
+    <p class="eyebrow">🟢 The floor</p>
+    <h2>What “enough” looks like</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Thing</th><th>“Enough” looks like</th><th>Brush up with</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Vectors &amp; matmul</strong></td>
+            <td>A matmul is rows-dot-columns, and shapes must line up
+              (<code>[m×k]·[k×n]=[m×n]</code>). ~80% of what an LLM <em>does</em>.</td>
+            <td>3Blue1Brown, <em>Essence of Linear Algebra</em></td></tr>
+          <tr><td><strong>A forward pass</strong></td>
+            <td>Inputs → weighted sums → a nonlinearity → outputs, stacked in layers.
+              You don’t need to know how it’s <em>trained</em>.</td>
+            <td>3Blue1Brown, <em>Neural Networks</em> ch. 1–2</td></tr>
+          <tr><td><strong>Basic Rust</strong></td>
+            <td><code>struct</code>/<code>enum</code>, <code>Vec</code>, slices,
+              <code>Option</code>/<code>Result</code>, ownership, <code>match</code>.
+              Not: async, macros, lifetime gymnastics.</td>
+            <td>The Rust Book (ch. 1–10), <code>rustlings</code></td></tr>
+          <tr><td><strong>Command line + git</strong></td>
+            <td>clone, branch, commit; run a binary; navigate folders.</td>
+            <td>(you’re already here)</td></tr>
+          <tr><td><strong>Bytes &amp; number types</strong></td>
+            <td>Roughly what <code>f32</code>/<code>f16</code>/<code>bf16</code>/<code>int8</code>
+              are; that an array is just numbers laid out in memory.</td>
+            <td>learning&nbsp;01 (safetensors vs GGUF)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout prose">
+      <strong>The Rust we use.</strong> We assume only <em>basic</em> Rust — but a
+      from-scratch engine reaches into corners a typical app never touches
+      (<code>unsafe</code> + raw pointers + <code>extern "C"</code> to call Metal,
+      <code>#[repr(C)]</code> layout, bit-level <code>bf16</code> decoding,
+      <code>mmap</code> over foreign memory). We <strong>explain each inline the first
+      time it appears.</strong> If you hit Rust that looks nothing like the Rust Book,
+      that’s expected — the <em>odd</em> Rust is part of what this repo teaches.
+    </div>
+  </div>
+</section>
+
+<section id="resources">
+  <div class="container prose">
+    <p class="eyebrow">Brush-up resources</p>
+    <h2>Ranked by usefulness for <em>this</em> repo</h2>
+
+    <h3>See it (intuition, a few hours)</h3>
+    <ul>
+      <li><a href="https://www.3blue1brown.com/topics/neural-networks">3Blue1Brown — Neural Networks series</a>
+        — the best visual intuition for matmul, neural nets, and attention.</li>
+      <li><a href="https://jalammar.github.io/illustrated-transformer/">Jay Alammar — The Illustrated Transformer</a>
+        — the classic picture of the architecture we’re implementing.</li>
+    </ul>
+
+    <h3>Code it (closest to our method — “working code doesn’t lie”)</h3>
+    <ul>
+      <li><a href="https://karpathy.ai/zero-to-hero.html">Karpathy — Neural Networks: Zero to Hero</a>
+        — <em>Build the GPT Tokenizer</em> primes M0; <em>Build GPT from scratch</em> primes M2/M3.</li>
+      <li><a href="https://github.com/karpathy/llama2.c">Karpathy — <code>llama2.c</code></a>
+        — a single ~970-line C file that runs Llama end-to-end; a gentler full engine than <code>ds4</code>.</li>
+      <li><em>(optional, paid)</em> <a href="https://github.com/rasbt/LLMs-from-scratch">Raschka — Build an LLM (From Scratch)</a>
+        — long-form version of what Karpathy’s free videos cover.</li>
+    </ul>
+
+    <h3>Place it in context (architecture)</h3>
+    <ul>
+      <li><a href="https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison">Raschka — The Big LLM Architecture Comparison</a>
+        + the <a href="https://sebastianraschka.com/llm-architecture-gallery/">gallery</a>
+        — read lightly now; revisit per milestone.</li>
+    </ul>
+
+    <h3>Go deeper on <em>inference</em> (free, by noted practitioners)</h3>
+    <ul>
+      <li><a href="https://inferenceengineering.tech/">Kiely — Inference Engineering interactive guide</a>
+        — the free companion to our concept book (calculators for VRAM, arithmetic intensity, KV-cache).</li>
+      <li><a href="https://lilianweng.github.io/posts/2023-01-10-inference-optimization/">Lilian Weng — Large Transformer Model Inference Optimization</a></li>
+      <li><a href="https://kipp.ly/transformer-inference-arithmetic/">kipply — Transformer Inference Arithmetic</a>
+        (why decode is memory-bound) · <a href="https://blog.eleuther.ai/transformer-math/">EleutherAI — Transformer Math 101</a></li>
+      <li><a href="https://horace.io/brrr_intro.html">Horace He — Making Deep Learning Go Brrrr</a>
+        · <a href="https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-quantization">Grootendorst — A Visual Guide to Quantization</a></li>
+    </ul>
+  </div>
+</section>
+
+<section id="self-check">
+  <div class="container prose">
+    <p class="eyebrow">You’re ready when…</p>
+    <h2>Self-check</h2>
+    <p>You don’t need to <em>answer</em> these — just feel they’re not total fog:</p>
+    <ul class="checklist">
+      <li>“An LLM mostly multiplies matrices” doesn’t sound mysterious.</li>
+      <li>You could write a Rust function taking a <code>&amp;[f32]</code>, summing it, returning the result.</li>
+      <li>You know a model file is “numbers + a table describing them.”</li>
+      <li>You accept that we’ll explain attention / RoPE / KV-cache / Metal when we get there.</li>
+    </ul>
+    <p>If those feel roughly OK, <strong>you’re ready.</strong> Next:
+      <a href="./index.html#ladder">the abstraction ladder →</a></p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM
+      inference by building it. Next milestone: <strong>M0 — the tokenizer</strong>.</p>
+    <p class="meta">This page distills <code>docs/prerequisites.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>

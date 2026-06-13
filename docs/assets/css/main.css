@@ -14,9 +14,10 @@
   --border-2:  #3b3648;
 
   /* ink (warm off-white, with dimmer steps) */
-  --text:      #e9e3d8;
-  --text-dim:  #b3a896;
-  --text-mute: #7c7263;
+  --text:        #e9e3d8;
+  --text-dim:    #b3a896;
+  --text-mute:   #7c7263;
+  --text-strong: #f3eee4;
 
   /* the failed star's dim glow */
   --ember:     #e8a04b;   /* primary accent — amber */
@@ -81,7 +82,7 @@ h3 { font-size: 1.25rem; margin: 2em 0 0.4em; color: var(--ember-hi); }
 p { margin: 0 0 1rem; }
 code { font-family: var(--mono); font-size: 0.88em; background: var(--surface-2);
   border: 1px solid var(--border); border-radius: 5px; padding: 0.08em 0.38em; }
-strong { color: #f3eee4; font-weight: 650; }
+strong { color: var(--text-strong); font-weight: 650; }
 mark { background: rgba(232,160,75,0.22); color: var(--ember-hi); border-radius: 3px;
   padding: 0 0.2em; }
 
@@ -233,3 +234,109 @@ td .yes { color: var(--book); } td .no { color: var(--text-mute); }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important;
   transition: none !important; } }
+
+/* ============================================================================
+   LIGHT THEME — toggled via <html data-theme="light">. Just re-point the tokens;
+   everything built from them re-themes for free. (A few hardcoded-dark spots get
+   explicit overrides below.)
+   ============================================================================ */
+html[data-theme="light"] {
+  --bg:        #f4efe4;
+  --surface:   #fffdf7;
+  --surface-2: #ece4d4;
+  --border:    #e3dac7;
+  --border-2:  #cfc4ac;
+  --text:        #2b2620;
+  --text-dim:    #5f574a;
+  --text-mute:   #938872;
+  --text-strong: #1f1b15;
+  --ember:    #b4691d;
+  --ember-hi: #8c4f10;
+  --rust:     #a8553a;
+  --dusk:     #9c4f6e;
+  --book:     #2f8f66;
+  --ds4:      #3a6db0;
+}
+html[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 600px at 78% -8%, rgba(232,160,75,0.12), transparent 60%),
+    radial-gradient(900px 520px at 12% 4%, rgba(168,96,125,0.08), transparent 55%),
+    var(--bg);
+}
+html[data-theme="light"] .site-header { background: rgba(244,239,228,0.82); }
+
+/* ---- Theme toggle button (lives outside .nav so it survives the mobile menu) -- */
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; flex: 0 0 auto; cursor: pointer;
+  border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface);
+  color: var(--text-dim); transition: color .15s, border-color .15s; }
+.theme-toggle:hover { color: var(--ember); border-color: var(--ember); }
+.theme-toggle svg { width: 18px; height: 18px; }
+.ic-moon { display: none; } .ic-sun { display: inline; }
+html[data-theme="light"] .ic-sun { display: none; }
+html[data-theme="light"] .ic-moon { display: inline; }
+
+/* ---- Cross-page nav: mark the current page -------------------------------- */
+.nav a.current { color: var(--ember); }
+
+/* ---- Prose lists (subpages) ----------------------------------------------- */
+.prose ul, .prose ol { padding-left: 1.25rem; margin: 0 0 1rem; }
+.prose li { margin: .35rem 0; }
+.prose li::marker { color: var(--ember); }
+
+/* ---- Tier cards (prerequisites) ------------------------------------------- */
+.card--floor   { border-top: 3px solid var(--book); }
+.card--helpful { border-top: 3px solid var(--ember); }
+.card--teach   { border-top: 3px solid var(--dusk); }
+.card .tier-tag { font-family: var(--mono); font-size: .72rem; letter-spacing: .04em;
+  color: var(--text-mute); }
+
+/* ---- Checklist (self-check) ----------------------------------------------- */
+.checklist { list-style: none; padding-left: 0; }
+.checklist li { position: relative; padding-left: 1.8rem; margin: .55rem 0; }
+.checklist li::before { content: "✓"; position: absolute; left: 0; top: 0;
+  color: var(--book); font-weight: 700; }
+
+/* ============================================================================
+   SAMPLING EXPLORER (diagrams page) — real softmax math, live in the browser.
+   ============================================================================ */
+.preview-banner { border: 1px solid color-mix(in oklab, var(--dusk) 50%, var(--border));
+  background: color-mix(in oklab, var(--dusk) 12%, var(--surface));
+  border-radius: var(--radius-sm); padding: 1rem 1.2rem; margin: 1.5rem 0;
+  color: var(--text-dim); }
+.preview-banner strong { color: var(--ember-hi); }
+
+.explorer { border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); padding: clamp(1rem, 3vw, 1.5rem); margin: 1.5rem 0; }
+.prompt-line { font-family: var(--mono); font-size: 1.05rem; margin: 0 0 1.2rem;
+  color: var(--text); }
+.prompt-line .blank { color: var(--ember); border-bottom: 2px solid var(--ember);
+  padding: 0 .7rem; }
+.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem;
+  margin-bottom: 1.3rem; }
+.control label { display: block; font-family: var(--mono); font-size: .78rem;
+  color: var(--text-dim); margin-bottom: .35rem; }
+.control label b { color: var(--ember); }
+.control input[type="range"] { width: 100%; accent-color: var(--ember); }
+.dist { display: flex; flex-direction: column; gap: .4rem; }
+.tok-row { display: grid; grid-template-columns: 5.5rem 1fr 3.4rem; align-items: center;
+  gap: .7rem; padding: .25rem .45rem; border-radius: 7px; transition: opacity .15s; }
+.tok-row .tok { font-family: var(--mono); font-size: .9rem; color: var(--text); }
+.tok-row .track { background: var(--surface-2); border-radius: 999px; height: .72rem;
+  overflow: hidden; }
+.tok-row .bar { display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--ember), var(--rust)); transition: width .25s; }
+.tok-row .pct { font-family: var(--mono); font-size: .8rem; color: var(--text-dim);
+  text-align: right; }
+.tok-row.cut { opacity: .38; }
+.tok-row.cut .bar { background: var(--text-mute); }
+.tok-row.sampled { outline: 2px solid var(--ember); outline-offset: 1px;
+  background: rgba(232,160,75,0.06); }
+.sample-row { display: flex; align-items: center; gap: 1rem; margin-top: 1.2rem;
+  flex-wrap: wrap; }
+.sample-out { font-size: .98rem; color: var(--text); }
+
+@media (max-width: 760px) {
+  .controls { grid-template-columns: 1fr; gap: .8rem; }
+  .tok-row { grid-template-columns: 4.5rem 1fr 3rem; gap: .5rem; }
+}

@@ -25,6 +25,18 @@
     });
   });
 
+  // (3) Light/dark toggle. The initial theme is set by an inline <head> script
+  //     (no flash); here we only handle clicks and persist the choice.
+  var themeBtn = document.getElementById("theme-toggle");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function () {
+      var isLight = document.documentElement.getAttribute("data-theme") === "light";
+      if (isLight) { document.documentElement.removeAttribute("data-theme"); }
+      else { document.documentElement.setAttribute("data-theme", "light"); }
+      try { localStorage.setItem("fs-theme", isLight ? "dark" : "light"); } catch (e) {}
+    });
+  }
+
   // Stamp the build year in the footer (kept out of HTML so it never goes stale).
   var y = document.getElementById("year");
   if (y) { y.textContent = String(new Date().getFullYear()); }
