@@ -1,0 +1,21 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Model weights / data (downloaded, not committed — big & licensed)
+/models/
+*.gguf
+*.safetensors
+*.bin
+
+# The book PDF (copyrighted — keep your own local copy; do not commit)
+Inference Engineering.pdf
+
+# Golden vectors / scratch artifacts (regenerate locally)
+/scratch/
+*.golden.npy
+
+# macOS
+.DS_Store
+
+# NOTE: reference/ds4 is a git SUBMODULE (pinned), intentionally NOT ignored.
