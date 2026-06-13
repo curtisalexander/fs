@@ -17,16 +17,22 @@ The goal is **understanding inference, by building it.** Reading about attention
 is one thing; writing the kernel that computes it and watching tokens stream out
 of your own code is another. This repo is the second thing.
 
-It rests on three sources, cross-referenced throughout the docs:
+Three sources form its **spine**, cross-referenced throughout the docs. (The
+[prerequisites](docs/prerequisites.md) point to a wider set of optional brush-up
+and go-deeper resources — those fill gaps; these three are what the docs lean on.)
 
 1. **The concepts** — *Inference Engineering* by Philip Kiely (Baseten, 2026).
-   The "why" and the vocabulary. (`Inference Engineering.pdf` in this repo.)
+   The "why" and the vocabulary. (Peruse the free
+   [interactive guide](https://inferenceengineering.tech/), or get your own copy
+   from [Baseten Books](https://www.baseten.co/inference-engineering/);
+   `Inference Engineering.pdf` is in this repo.)
 2. **A real implementation** — [`ds4`](https://github.com/antirez/ds4), cloned
    into `reference/ds4/`. The "how a pro does it." *Working code doesn't lie.*
-3. **Architecture context** — Sebastian Raschka's
+3. **Architecture context** — Sebastian Raschka's *free articles*: the
    [architecture comparison](https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison),
    [gallery](https://sebastianraschka.com/llm-architecture-gallery/), and
    [workflow for understanding LLMs](https://magazine.sebastianraschka.com/p/workflow-for-understanding-llms).
+   (His *book* is a good optional extra, not a dependency — see the prerequisites.)
 
 ## How it's built
 

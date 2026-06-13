@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Failed Star — Candidate 1: "Flat Mono Mark"
+  A minimal, single-color geometric take. The whole star slouches:
+  the top point bends over to one side, the upper "shoulder" points round
+  forward, and the lower-left point sags like a tired, hanging arm.
+  Designed to work as a near-flat mark: it inherits CSS `color`
+  (set `color:` on a parent, or use fill="currentColor" on the host).
+  Reads at 24px: bold silhouette + minimal punched-out face (eyes + frown).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img"
+     fill="currentColor" color="#a8553a"
+     aria-label="Failed Star: a hunched, disappointed five-point star">
+
+  <!--
+    Hunched 5-point star silhouette, drawn as one closed path.
+    The figure leans right and bows its head: the top point (its "head")
+    flops over, and the lower-left point droops down so it reads as dejected.
+    Face features are cut out via a second sub-path + even-odd fill, so the
+    whole mark stays a single color and shows the background through the eyes.
+  -->
+  <path fill-rule="evenodd" d="
+    M 74 16
+    C 70 26, 62 30, 56 34
+    L 34 42
+    L 54 56
+    C 47 67, 45 78, 43 90
+    L 64 80
+    L 86 92
+    C 84 79, 84 68, 82 58
+    L 102 46
+    L 80 40
+    C 80 30, 79 22, 74 16
+    Z
+
+    M 49 57
+    l 9 -4
+    l 1 3
+    l -9 4
+    Z
+    M 79 57
+    l -9 -4
+    l -1 3
+    l 9 4
+    Z
+    M 56 76
+    q 8 -9 16 0
+    q -8 -4 -16 0
+    Z
+  "/>
+</svg>

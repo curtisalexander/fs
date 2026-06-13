@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failed Star — learn LLM inference by building it</title>
+<meta name="description" content="A small, self-contained LLM inference engine for Apple Silicon, built from scratch to learn and teach how inference engineering works.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/00-map.md; docs/prerequisites.md">
+
+<link rel="preconnect" href="https://github.com">
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<!-- ============================== HEADER ============================== -->
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="#ladder">The machine</a>
+      <a href="#journey">The journey</a>
+      <a href="#practical">Correct → fast → small</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============================== HERO ============================== -->
+<section class="hero">
+  <div class="container">
+    <div>
+      <p class="eyebrow">A from-scratch inference engine</p>
+      <h1>Failed&nbsp;Star</h1>
+      <p class="tagline">Learn how LLM inference really works — by building a tiny
+        engine for Apple Silicon, one readable line at a time.</p>
+      <div class="btn-row">
+        <a class="btn btn--primary" href="#ladder">See the whole machine ↓</a>
+        <a class="btn" href="https://github.com/curtisalexander/fs">Read the source</a>
+      </div>
+    </div>
+    <img class="star-art" src="./assets/logo/star.svg"
+         alt="A cartoon five-pointed star, hunched over and looking dejected — a failed star.">
+
+  </div>
+</section>
+
+<!-- ============================== ONE SENTENCE ============================== -->
+<section id="what">
+  <div class="container prose">
+    <p class="eyebrow">The one-sentence version</p>
+    <h2>It’s just text&nbsp;→&nbsp;numbers&nbsp;→&nbsp;text, in a loop</h2>
+    <p class="lead">Inference is: turn text into numbers, push those numbers through a
+      big pile of matrix multiplications the model learned during training, and turn
+      the result back into text — <strong>one token at a time, in a loop.</strong></p>
+    <p>Everything else — KV caches, quantization, Metal kernels, MoE routing — is just
+      <em>making that loop correct, then fast, then small enough to fit.</em> This site
+      is the distilled map; the <a href="https://github.com/curtisalexander/fs">repo</a>
+      is where we build it.</p>
+    <div class="cites">
+      <span class="chip chip--book">📖 Book · Ch 0 (p.15), Ch 2 (p.39)</span>
+      <span class="chip chip--ds4">🔧 ds4 · the reference engine</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE LADDER ============================== -->
+<section id="ladder">
+  <div class="container">
+    <p class="eyebrow">The whole machine at a glance</p>
+    <h2>The abstraction ladder</h2>
+    <p class="prose">An inference engine is a stack — from a chat loop at the top down
+      to GPU threads at the bottom. <strong>Click any rung</strong> to see what it is,
+      why it matters, and the milestone where we build it. Stop descending wherever it
+      stops being interesting to you.</p>
+
+    <div class="ladder-controls">
+      <label class="toggle">
+        <input type="checkbox" id="show-build">
+        Highlight what <em>we</em> build
+      </label>
+      <span class="axis">↑ highest abstraction · lowest ↓</span>
+    </div>
+
+    <div class="ladder">
+      <details class="rung" data-build="no">
+        <summary><span class="num">7</span>
+          <span><span class="title">Chat / agent loop</span><br>
+          <span class="blurb">“user types, model replies, repeat” — prompt templating, tool calls, sessions</span></span>
+          <span class="mstone">later / maybe</span></summary>
+        <div class="detail"><p>The outermost shell: a conversation is just a growing list
+          of tokens. Out of scope for now — we want the engine underneath it first.</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">6</span>
+          <span><span class="title">Generation loop</span><br>
+          <span class="blurb">prefill → decode → sample → append; temperature, top-k/top-p, streaming</span></span>
+          <span class="mstone">M3</span></summary>
+        <div class="detail"><p>The loop that makes the model <em>talk</em>: run the forward
+          pass, sample one token, append it, repeat until a stop token. This is where
+          prefill and decode live (see below).</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">5</span>
+          <span><span class="title">The model forward pass</span><br>
+          <span class="blurb">embeddings → N transformer blocks → final norm → logits</span></span>
+          <span class="mstone">M2</span></summary>
+        <div class="detail"><p>One full pass through the network turns a sequence of tokens
+          into a score (logit) for every possible next token. Mostly matmuls.</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">4</span>
+          <span><span class="title">One transformer block</span><br>
+          <span class="blurb">norm → attention (+RoPE, +KV cache) → norm → FFN/MoE → residual adds</span></span>
+          <span class="mstone">M2</span></summary>
+        <div class="detail"><p>The repeated unit. Attention lets each token mix in
+          information from earlier tokens; the FFN transforms each token on its own.
+          Stack it N times and you have the whole model body.</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">3</span>
+          <span><span class="title">Tensor operations</span><br>
+          <span class="blurb">matmul, softmax, RMSNorm, RoPE, SwiGLU, argmax/sampling</span></span>
+          <span class="mstone">M2–M3</span></summary>
+        <div class="detail"><p>The actual math. Each named thing — RMSNorm, RoPE,
+          attention, SwiGLU — is one tensor operation. This is the layer we hand-write.</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">2</span>
+          <span><span class="title">Kernels</span><br>
+          <span class="blurb">each op as a Metal (MSL) shader, run on the GPU over a command buffer</span></span>
+          <span class="mstone">M6</span></summary>
+        <div class="detail"><p>Each tensor op becomes a small MSL program the GPU runs over
+          thousands of threads. We submit them through raw Objective-C FFI — no wrapper
+          crate — so nothing is hidden.</p></div>
+      </details>
+
+      <details class="rung" data-build="yes">
+        <summary><span class="num">1</span>
+          <span><span class="title">Memory &amp; numbers</span><br>
+          <span class="blurb">weights in RAM, dtype/quantization, unified memory, buffers, bandwidth</span></span>
+          <span class="mstone">M1 · M5</span></summary>
+        <div class="detail"><p>Weights are just numbers laid out in memory. How many bits
+          each takes (quantization) decides whether the model fits — and, because decode
+          is bandwidth-bound, how fast it runs.</p></div>
+      </details>
+
+      <details class="rung" data-build="no">
+        <summary><span class="num">0</span>
+          <span><span class="title">The hardware</span><br>
+          <span class="blurb">Apple Silicon GPU: threads, SIMD, threadgroups, registers, the memory hierarchy</span></span>
+          <span class="mstone">we target it</span></summary>
+        <div class="detail"><p>The floor. We don’t build the GPU, but understanding its
+          memory hierarchy is what makes the kernels above it fast.</p></div>
+      </details>
+    </div>
+
+    <div class="callout prose">
+      <strong>How we build:</strong> roughly <em>bottom-meets-middle</em> — enough of
+      rungs 1–3 to make rung 5 produce <em>correct</em> logits, then rung 6 to make it
+      <em>talk</em>, then back down into rungs 2/1/0 to make it <em>fast</em>.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE JOURNEY ============================== -->
+<section id="journey">
+  <div class="container">
+    <p class="eyebrow">Follow one prompt through the machine</p>
+    <h2>The data’s journey</h2>
+    <p class="prose">The same story as the ladder, told as a pipeline. Each stage names
+      the milestone where we build it.</p>
+    <div class="pipeline">
+      <div class="stage"><span class="mstone">M0</span><span class="step">STAGE A</span>
+        <h4>Text → tokens</h4><p>Split text into integer token IDs with a learned BPE
+        vocabulary. <code>"hello world"</code> → <code>[15339, 1917]</code>.</p></div>
+      <div class="stage"><span class="mstone">M2</span><span class="step">STAGE B</span>
+        <h4>Tokens → vectors</h4><p>Each token ID indexes a row of the embedding matrix —
+        now the model works on numbers, not text.</p></div>
+      <div class="stage"><span class="mstone">M2</span><span class="step">STAGE C</span>
+        <h4>Transformer blocks</h4><p>Vectors flow through N identical blocks: norm →
+        attention → norm → FFN, each with a residual add.</p></div>
+      <div class="stage"><span class="mstone">M2</span><span class="step">STAGE D</span>
+        <h4>Final norm → logits</h4><p>A last norm, then a big matmul against the vocabulary
+        gives a score for every possible next token.</p></div>
+      <div class="stage"><span class="mstone">M3</span><span class="step">STAGE E</span>
+        <h4>Logits → next token</h4><p>Softmax with temperature turns scores into
+        probabilities; greedy or top-k/top-p picks one token.</p></div>
+      <div class="stage"><span class="mstone">M3–M4</span><span class="step">STAGE F</span>
+        <h4>Append &amp; repeat</h4><p>Add the new token and loop — but only for the <em>one</em>
+        new token, thanks to the KV cache. Stream to screen.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PREFILL VS DECODE ============================== -->
+<section id="phases">
+  <div class="container">
+    <p class="eyebrow">Why inference feels the way it does</p>
+    <h2>Two phases: prefill vs decode</h2>
+    <p class="prose">Internalizing this split explains almost every performance decision
+      in the engine.</p>
+    <div class="split prose">
+      <div class="phase phase--prefill">
+        <h3>Prefill</h3>
+        <p>Process the <strong>whole prompt at once</strong>. Many tokens → big matmuls →
+          <strong>compute-bound</strong>. Fast per token — the “reading your question” phase.</p>
+        <p class="stat">~463 tok/s</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Decode</h3>
+        <p>Generate <strong>one token at a time</strong>. Each step touches <em>all</em> the
+          weights to produce <em>one</em> token → <strong>memory-bandwidth-bound</strong>. The slow,
+          one-word-at-a-time “typing the answer” phase.</p>
+        <p class="stat">~26 tok/s</p>
+      </div>
+    </div>
+    <p class="prose" style="color:var(--text-mute);font-size:0.9rem">
+      Headline <code>ds4</code> numbers on an M5 Max (q2): same model, ~18× difference —
+      because decode is gated by memory bandwidth, not math.</p>
+    <div class="cites prose">
+      <span class="chip chip--book">📖 §2.4 Inference Bottlenecks (p.61)</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CORRECT → FAST → SMALL ============================== -->
+<section id="practical">
+  <div class="container">
+    <p class="eyebrow">What makes it practical</p>
+    <h2>Correct → fast → small</h2>
+    <p class="prose">Once the loop is correct, almost all of inference engineering is three
+      ideas.</p>
+    <div class="cards">
+      <div class="card"><span class="mstone">M4</span>
+        <h3>KV cache</h3>
+        <p>Don’t recompute the past. Cache each layer’s keys/values so decode does one
+          token’s worth of work instead of reprocessing the whole sequence.</p></div>
+      <div class="card"><span class="mstone">M5</span>
+        <h3>Quantization</h3>
+        <p>Store 16-bit weights in 8/4/2 bits with clever scaling. Shrinks memory and —
+          because decode is bandwidth-bound — <em>speeds it up</em>.</p></div>
+      <div class="card"><span class="mstone">M6</span>
+        <h3>Metal kernels</h3>
+        <p>Do the math on the GPU, tightly. Each op becomes an MSL shader we submit via
+          raw FFI; kernel fusion is the key speed lever.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== COVERAGE ============================== -->
+<section id="scope">
+  <div class="container">
+    <p class="eyebrow">Who covers what</p>
+    <h2>Failed Star vs Dwarf Star vs the Book</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>The book</th><th><code>ds4</code></th><th>Failed Star builds</th></tr></thead>
+        <tbody>
+          <tr><td>Concepts / vocabulary</td><td class="yes">✅ everything</td><td class="no">—</td><td class="no">— (we cite it)</td></tr>
+          <tr><td>Tokenizer</td><td>mentions</td><td><code>rax.c</code></td><td>M0 (Rust)</td></tr>
+          <tr><td>Forward pass</td><td class="yes">✅ the math</td><td><code>ds4.c</code> + <code>metal/*</code></td><td>M2 (Rust + MSL)</td></tr>
+          <tr><td>Sampling</td><td class="yes">✅</td><td><code>softmax, argsort</code></td><td>M3 (Rust)</td></tr>
+          <tr><td>KV cache</td><td class="yes">✅ §5.3</td><td><code>ds4_kvstore.c</code> + SSD</td><td>M4 (RAM-first)</td></tr>
+          <tr><td>Quantization</td><td class="yes">✅ §5.1</td><td><code>gguf-tools/</code></td><td>M5 (8/4-bit)</td></tr>
+          <tr><td>Metal kernels</td><td class="yes">✅ §4.1</td><td><code>ds4_metal.m</code></td><td>M6 (raw FFI)</td></tr>
+          <tr><td>Multi-backend (CUDA/ROCm)</td><td>Ch 3–4</td><td><code>ds4_cuda.cu</code></td><td class="no">❌ Metal only</td></tr>
+          <tr><td>Distributed / server / agent</td><td>Ch 7</td><td><code>ds4_server.c</code></td><td class="no">❌ out of scope</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose" style="color:var(--text-dim);font-size:0.92rem">
+      <code>ds4</code> runs <strong>DeepSeek-V4-Flash</strong> (284B / 13B-active MoE).
+      Failed Star starts with a <strong>tiny dense</strong> model — so the comparison is
+      <strong>1:1 for fundamentals</strong> and divergent for the fancy parts, which is
+      exactly why those are late milestones.</p>
+  </div>
+</section>
+
+<!-- ============================== FOOTER ============================== -->
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — a slow,
+      multi-session learning project. Not yet fast, capable, or finished. That’s the point.</p>
+    <p>Built on three sources: <em>Inference Engineering</em> (Kiely),
+      <a href="https://github.com/antirez/ds4">ds4</a> (antirez), and Raschka’s architecture writing.
+      Next milestone: <strong>M0 — the tokenizer</strong>.</p>
+    <p class="meta">This page is a distillation of <code>docs/00-map.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>

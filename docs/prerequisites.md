@@ -92,14 +92,43 @@ comes with an explanation. The *odd* Rust is part of what this repo teaches.
   ~970-line C file* that runs Llama inference end-to-end. A **much gentler full
   engine to read than `ds4`** — think of it as a stepping stone toward `ds4`, and a
   close cousin of what *we're* building (just in C, not Rust/Metal).
-- **Sebastian Raschka — Build a Large Language Model (From Scratch)** (book +
-  <https://github.com/rasbt/LLMs-from-scratch>) — the canonical clean from-scratch
-  walkthrough of tokenization, attention, and the transformer.
+- *(optional, paid)* **Sebastian Raschka — Build a Large Language Model (From
+  Scratch)** (book; free code at <https://github.com/rasbt/LLMs-from-scratch>) — a
+  clean book-length walkthrough of tokenization, attention, and the transformer. It
+  covers the same "build it from scratch" ground as Karpathy's free videos above —
+  reach for it only if you want the long-form, sit-down treatment.
 
 **Place it in context (architecture):**
 - Raschka, [The Big LLM Architecture Comparison](https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison)
   and the [gallery](https://sebastianraschka.com/llm-architecture-gallery/) — read
   *lightly* now (to see where Qwen3 and DeepSeek-V4 sit); revisit per milestone.
+
+**Go deeper on *inference* specifically (free, by noted practitioners):**
+Inference reuses a model someone else trained, but it has its own arithmetic —
+memory- vs compute-bound, KV-cache cost, where the time actually goes. These are
+the canonical free reads, and most are ongoing series worth following:
+- **Philip Kiely — *Inference Engineering* interactive guide:**
+  <https://inferenceengineering.tech/> — the free companion to our concept book;
+  animated diagrams + calculators (VRAM, arithmetic intensity, KV-cache sizing).
+- **Lilian Weng (Lil'Log) — "Large Transformer Model Inference Optimization":**
+  <https://lilianweng.github.io/posts/2023-01-10-inference-optimization/> — the best
+  single free survey of inference optimization; her whole blog is a rigorous series.
+- **kipply (Carol Chen) — "Transformer Inference Arithmetic":**
+  <https://kipp.ly/transformer-inference-arithmetic/> — the canonical back-of-the-
+  envelope: why decode is memory-bound and how big the KV cache gets. Primes M4/M6.
+- **EleutherAI — "Transformer Math 101":** <https://blog.eleuther.ai/transformer-math/>
+  (+ the [cookbook](https://github.com/EleutherAI/cookbook)) — companion FLOP/memory math.
+- **Horace He — "Making Deep Learning Go Brrrr From First Principles":**
+  <https://horace.io/brrr_intro.html> — compute- / memory- / overhead-bound, the
+  mental model behind every kernel choice. Primes M6.
+- **Maarten Grootendorst — "A Visual Guide to Quantization"** (+ his MoE guide):
+  <https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-quantization> —
+  50+ visuals on GPTQ/GGUF/BitNet. Primes M5 (and M7 for MoE).
+
+**Another practitioner book (free, optional):**
+- **Stas Bekman — "Machine Learning Engineering Open Book":**
+  <https://github.com/stas00/ml-engineering> — a living, open practitioner book;
+  strong on the serving / scaling / inference-ops side beyond a single model.
 
 **The book itself (our concept source) — the prerequisite chapters:**
 - **Ch 0 "Inference" (p.15)** — what inference even is.

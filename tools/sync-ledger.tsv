@@ -1,0 +1,8 @@
+# Sync ledger — which published HTML page distills which working markdown.
+# The HTML is a deliberate *distillation*, not a word-for-word conversion, so we
+# don't auto-generate it. Instead this ledger records the commit at which each page
+# was last reconciled with its sources; `tools/sync-check.sh` reports when a source
+# has changed since — i.e. when a page is due for a re-read.
+#
+# Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
+docs/index.html	docs/00-map.md,docs/prerequisites.md	PENDING

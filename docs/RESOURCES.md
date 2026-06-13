@@ -12,6 +12,10 @@ Local file: [`../Inference Engineering.pdf`](../Inference%20Engineering.pdf) (25
 A production-serving survey: it teaches the concepts and vocabulary; it treats the
 engine mostly as a box you operate. Most relevant chapters for us: **2, 4, 5**.
 
+Get your own copy: peruse the free [interactive guide](https://inferenceengineering.tech/)
+(animated diagrams + VRAM / arithmetic-intensity / KV-cache calculators), then buy
+the paperback from [Baseten Books](https://www.baseten.co/inference-engineering/).
+
 > Reading PDFs in this repo: the built-in reader needs `poppler` (`brew install
 > poppler`); extract a page range with `pdftotext -f <first> -l <last> "Inference
 > Engineering.pdf" -`.
@@ -114,8 +118,11 @@ it; we don't build its CUDA/ROCm/server/agent/distributed parts.
   His method: technical report → HF config files → reference implementation
   ("working code doesn't lie") → implement a few by hand. We adopt this per
   milestone (see `docs/00-map.md` §6).
-- His book **"Build a Large Language Model (From Scratch)"** — the canonical clean
-  from-scratch reference (BPE, attention, training); great for M0/M2.
+- *(optional, paid — not a dependency)* His book **"Build a Large Language Model
+  (From Scratch)"** — a clean book-length from-scratch reference (BPE, attention,
+  training). It covers the same ground as Karpathy's free Zero-to-Hero + `llama2.c`;
+  the three free articles above are what we actually cross-reference. Reach for the
+  book only if you want the long-form, sit-down treatment.
 
 ---
 

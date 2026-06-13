@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Failed Star — Candidate 4: "Chibi + Glow"
+  A merge: the expressive chibi mascot body/face from Candidate 2, now sitting in
+  the faint brown-dwarf heat-glow from Candidate 3, with #3's two orbiting motes
+  and the cold "fizzled spark" above its head (the ignition that never caught).
+  Layered primitives so each feature stays independently editable.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img"
+     aria-label="Failed Star: a cute, hunched, disappointed star inside a faint cosmic glow">
+  <defs>
+    <!-- faint surrounding heat-glow (from #3): warm center fading to nothing -->
+    <radialGradient id="glow4" cx="50%" cy="50%" r="50%">
+      <stop offset="0"    stop-color="#e8a04b" stop-opacity="0.42"/>
+      <stop offset="0.45" stop-color="#a8553a" stop-opacity="0.22"/>
+      <stop offset="1"    stop-color="#a8553a" stop-opacity="0"/>
+    </radialGradient>
+    <!-- chibi body shading (from #2): brighter ember on top, dim red-brown below -->
+    <linearGradient id="body4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8a04b"/>
+      <stop offset="1" stop-color="#bd6a3c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ===== ATMOSPHERE (from #3), drawn behind the star ===== -->
+  <circle cx="70" cy="60" r="58" fill="url(#glow4)"/>
+  <!-- two tiny orbiting motes (debris that never coalesced) -->
+  <circle cx="108" cy="40" r="2.6" fill="#e8a04b" opacity="0.85"/>
+  <circle cx="18"  cy="98" r="2"   fill="#c77a86" opacity="0.70"/>
+  <!-- the cold fizzled spark above the head: the ignition that failed -->
+  <g opacity="0.65" stroke="#cdb89a" stroke-width="1.6" stroke-linecap="round">
+    <path d="M 50 10 v 8"/>
+    <path d="M 46 14 h 8"/>
+  </g>
+
+  <!-- ===== BODY (from #2): chibi hunched star ===== -->
+  <path d="
+    M 64 18
+    C 68 28, 70 34, 66 40
+    L 40 44
+    C 50 54, 54 58, 56 64
+    C 52 76, 48 86, 44 96
+    C 56 92, 62 90, 68 90
+    C 76 94, 84 98, 92 102
+    C 90 90, 88 82, 88 74
+    C 96 66, 102 60, 108 54
+    L 84 48
+    C 84 38, 78 26, 64 18
+    Z"
+    fill="url(#body4)" stroke="#a8553a" stroke-width="4"
+    stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- ===== FACE (from #2) ===== -->
+  <g>
+    <!-- droopy half-closed eyes with low pupils -->
+    <path d="M 51 58 q 6 6 12 0" fill="none" stroke="#3a1f18" stroke-width="3.4" stroke-linecap="round"/>
+    <circle cx="57" cy="63" r="2.1" fill="#3a1f18"/>
+    <path d="M 69 58 q 6 6 12 0" fill="none" stroke="#3a1f18" stroke-width="3.4" stroke-linecap="round"/>
+    <circle cx="75" cy="63" r="2.1" fill="#3a1f18"/>
+    <!-- worried brows (inner ends raised = sad) -->
+    <path d="M 50 52 l 12 -3" fill="none" stroke="#3a1f18" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M 82 52 l -12 -3" fill="none" stroke="#3a1f18" stroke-width="2.6" stroke-linecap="round"/>
+    <!-- small downturned frown -->
+    <path d="M 60 76 q 6 -6 12 0" fill="none" stroke="#3a1f18" stroke-width="3.4" stroke-linecap="round"/>
+  </g>
+
+  <!-- single bead of sweat (from #2) -->
+  <path d="M 92 60 c -3 5 -3 8 0 8 c 3 0 3 -3 0 -8 Z"
+        fill="#cdd6e6" stroke="#8aa0c0" stroke-width="0.8"/>
+</svg>
