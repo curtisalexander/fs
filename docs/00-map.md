@@ -5,6 +5,10 @@ it as an index: every part links to **(a)** the relevant section of *Inference
 Engineering* (the book), **(b)** the file in `ds4` that implements it for real,
 and **(c)** Raschka's writing for architecture context.
 
+> **New here?** Read [`prerequisites.md`](prerequisites.md) first — what to know
+> before diving in (and what we'll teach you). It also expands this map's ladder
+> into "which idea each rung needs."
+
 > **How to use this doc.** It's organized as an **abstraction ladder** — from the
 > highest level (a chat loop) down to the lowest (threads on the GPU). You can
 > stop descending at whatever rung stops being interesting *to you*. Each rung

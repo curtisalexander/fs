@@ -32,6 +32,9 @@
   natively; GGUF (what ds4 uses) arrives with the quantization lesson. ✅
 - Repo `git init`'d (branch `main`).
 - Wrote first learning note: `docs/learnings/01-safetensors-vs-gguf.md`.
+- Wrote `docs/prerequisites.md` — the "what to know before diving in" gate (tiered
+  floor/helpful/we'll-teach, brush-up resources, map→knowledge table, a note on the
+  unusual Rust we'll explain inline).
 - Pushed scaffold to remote `origin` (github.com/curtisalexander/fs), preserving
   the existing MIT LICENSE.
 

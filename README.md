@@ -51,7 +51,8 @@ fs/
 ├── PROGRESS.md                ← running session log; start here each session
 ├── Inference Engineering.pdf  ← the book
 ├── docs/
-│   ├── 00-map.md              ← THE BIG PICTURE — read this first
+│   ├── prerequisites.md       ← what to know before diving in (read this first)
+│   ├── 00-map.md              ← THE BIG PICTURE of an inference engine
 │   ├── RESOURCES.md           ← cross-reference index (book §§, ds4 files, Raschka)
 │   └── learnings/            ← bite-sized notes on what we figured out & why
 ├── reference/ds4/             ← antirez's ds4 — pinned git submodule (read-only ref)
@@ -60,11 +61,14 @@ fs/
 
 ## Where to start
 
-1. Read **[`docs/00-map.md`](docs/00-map.md)** — the end-to-end picture of an
+1. Read **[`docs/prerequisites.md`](docs/prerequisites.md)** — the honest "what to
+   know before you dive in" (spoiler: inference is the forward pass only — no
+   training, no calculus), with brush-up resources and a knowledge-map.
+2. Read **[`docs/00-map.md`](docs/00-map.md)** — the end-to-end picture of an
    inference engine, with an "abstraction ladder" so you can stop digging at
    whatever depth interests you.
-2. Skim **[`PLAN.md`](PLAN.md)** — the milestones.
-3. Each session, open **[`PROGRESS.md`](PROGRESS.md)** to see what's next.
+3. Skim **[`PLAN.md`](PLAN.md)** — the milestones.
+4. Each session, open **[`PROGRESS.md`](PROGRESS.md)** to see what's next.
 
 ## Status
 
