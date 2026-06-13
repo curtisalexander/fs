@@ -6,6 +6,42 @@
 
 **Current milestone:** M0 — Tokenizer (not started)
 **Engine status:** scaffolding only, no code yet.
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 2 — 2026-06-13 — HTML learning site + logo + doc alignment
+
+**Did:**
+- **Published a GitHub Pages site** at <https://curtisalexander.github.io/fs/> —
+  served straight from `main` `/docs` (Settings → Pages → deploy-from-branch), with
+  `docs/.nojekyll` so our hand-written HTML is served verbatim. **No CI/Action.**
+- **HTML spine** `docs/index.html`: a distillation of `00-map.md` — interactive
+  abstraction ladder (click-to-expand rungs + "highlight what we build" toggle),
+  data-journey pipeline, prefill/decode split, correct→fast→small cards, coverage
+  table. Custom design system in `docs/assets/css/main.css` (themeable, warm
+  "brown-dwarf" dark palette, no framework); vanilla JS in `docs/assets/js/app.js`.
+- **Sync model = "distillation, not conversion":** HTML is hand-authored, not
+  auto-generated. `tools/sync-ledger.tsv` records which markdown each page distills
+  + the reconciled commit; `tools/sync-check.sh` reports drift (and `--update`
+  re-stamps). Each page also self-declares sources via `<meta name="fs-distills">`.
+- **Logo:** "failed star" = a sad, hunched chibi star in a faint brown-dwarf glow
+  with orbiting motes + a fizzled spark. Brand/hero = `docs/assets/logo/star.svg`;
+  favicon = mono `star-mono.svg`. Candidates + contact sheet kept in
+  `assets/logo-drafts/` for future iteration.
+- **Doc alignment** (README/RESOURCES/prerequisites): reframed "three sources" as
+  the *spine* (vs the wider brush-up set); added Kiely peruse link
+  (inferenceengineering.tech → Baseten Books); split Raschka's *free articles*
+  (load-bearing) from his *book* (optional, paid); added an inference-specific
+  reading list (Weng, kipply, EleutherAI, Horace He, Grootendorst, Bekman).
+
+**Decisions resolved this session:**
+- Publish via **branch-folder Pages, not GitHub Actions** (less machinery, more
+  transparent — matches the "no hidden abstraction" ethos). Site lives in `/docs`
+  alongside the working markdown; `.nojekyll` keeps the `.md` inert.
+- HTML ≠ markdown auto-conversion; keep them "kinda in sync" via **drift detection**.
+
+**Next session (M0 — tokenizer):** *(unchanged from below)*
 
 ---
 
