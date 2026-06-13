@@ -1,7 +1,16 @@
-# Failed Star (`fs`)
+<p align="center">
+  <img src="docs/assets/logo/star.svg" width="150"
+       alt="Failed Star logo: a sad, hunched cartoon star in a faint brown-dwarf glow">
+</p>
 
-> A small, self-contained LLM inference engine for Apple Silicon — built from
-> scratch, in the open, to *learn and teach* how inference engineering works.
+<h1 align="center">Failed Star (<code>fs</code>)</h1>
+
+<p align="center"><em>A small, self-contained LLM inference engine for Apple Silicon —<br>
+built from scratch, in the open, to <strong>learn and teach</strong> how inference engineering works.</em></p>
+
+<p align="center">
+  <a href="https://curtisalexander.github.io/fs/"><strong>📖&nbsp;Read the learning site →</strong></a>
+</p>
 
 A **failed star** (a brown dwarf) is smaller than a dwarf star: not enough mass
 to sustain fusion. This project is the smaller sibling of
