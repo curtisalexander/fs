@@ -340,3 +340,20 @@ html[data-theme="light"] .ic-moon { display: inline; }
   .controls { grid-template-columns: 1fr; gap: .8rem; }
   .tok-row { grid-template-columns: 4.5rem 1fr 3rem; gap: .5rem; }
 }
+
+/* ---- Attention visualizer (diagrams) -------------------------------------- */
+.attn-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1rem;
+  margin-bottom: 1.2rem; }
+.attn-hint { font-family: var(--mono); font-size: .78rem; color: var(--text-dim); }
+.attn-tokens { display: flex; flex-wrap: wrap; gap: .4rem; }
+.attn-chip { position: relative; overflow: hidden; font-family: var(--mono);
+  font-size: .92rem; padding: .3rem .6rem .5rem; border-radius: 7px;
+  border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text);
+  cursor: pointer; transition: border-color .15s, opacity .15s; }
+.attn-chip:hover { border-color: var(--ember); }
+.attn-chip.query { outline: 2px solid var(--ember); outline-offset: 1px; }
+.attn-chip.masked { opacity: .32; }
+.attn-wbar { position: absolute; left: 0; bottom: 0; height: 4px;
+  background: linear-gradient(90deg, var(--ember), var(--rust));
+  border-radius: 0 2px 2px 0; transition: width .25s; }
+.attn-caption { margin-top: 1rem; color: var(--text-dim); font-size: .95rem; }

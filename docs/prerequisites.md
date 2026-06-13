@@ -2,7 +2,7 @@
 
 **Read this before [`00-map.md`](00-map.md) and before M0.** This is a *learning*
 repo, so the bar is deliberately low — but not zero. Here's the floor, what's
-merely helpful, and what we promise to teach you. Then a "brush-up" resource list
+merely helpful, and what we plan to demonstrate. Then a "brush-up" resource list
 and a knowledge-map you can use to find your own gaps.
 
 > ### The single most liberating fact
@@ -21,7 +21,7 @@ and a knowledge-map you can use to find your own gaps.
   spend an hour with a resource below; you don't need mastery.
 - 🟡 **Helpful — brush up as you go.** Nice to have seen once; you can learn it
   *while* following along.
-- 🔵 **We'll teach you.** Come curious, not prepared. Showing up knowing these
+- 🔵 **We'll teach you.** Come curious, be ready to dig in. Showing up knowing these
   would defeat the purpose.
 
 ---

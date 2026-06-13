@@ -37,15 +37,13 @@
   <div class="container prose">
     <p class="eyebrow">Interactive previews</p>
     <h2>Diagrams</h2>
-    <p class="lead">This is where the <em>HTML</em> earns its keep: live, in-browser
-      diagrams you can poke at — not screenshots. Each one previews a concept the
-      engine will implement.</p>
+    <p class="lead">Live, in-browser diagrams you can poke at — not screenshots.
+      Each one previews a concept the engine will implement.</p>
     <div class="preview-banner">
       <strong>A preview — please be patient.</strong> These diagrams run real math in
       your browser, but the <em>engine</em> that will produce these numbers for real
-      isn’t built yet. We’re sharing the destination early; the matching code lands at
-      its milestone (the sampler below is <strong>M3</strong>). Think of it as a
-      trailer, not the finished film.
+      isn’t built yet; the matching code lands at its milestone (the sampler below is
+      <strong>M3</strong>).
     </div>
   </div>
 </section>
@@ -104,8 +102,50 @@
         <em>Sample a token</em> draws from that final distribution — exactly what the
         generation loop will do, one token at a time.</p>
       <div class="cites">
-        <span class="chip chip--book">📖 Book · §2.2 LLM Inference Mechanics (p.46)</span>
+        <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.2 (p.46)</span>
         <span class="chip chip--ds4">🔧 ds4 · softmax.metal, argsort.metal</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="attention">
+  <div class="container">
+    <p class="eyebrow">Milestone M2 · the heart of the transformer</p>
+    <h2>Attention: every token looks back</h2>
+    <p class="prose">Inside each transformer block, a token builds its next
+      representation by <strong>looking at the tokens before it</strong> and taking a
+      weighted average of them. The weights come from how well a token’s
+      <em>query</em> matches each other token’s <em>key</em> (Q·Kᵀ → softmax). Pick a
+      token to see what it attends to. The softmax is real; the token vectors are a
+      fixed toy example.</p>
+
+    <div class="explorer">
+      <div class="attn-controls">
+        <span class="attn-hint">query token →</span>
+        <div class="attn-tokens" id="attn-tokens"><!-- chips rendered by JS --></div>
+        <label class="toggle"><input type="checkbox" id="attn-causal" checked>
+          causal mask (no peeking ahead)</label>
+      </div>
+      <div class="dist" id="attn-bars"><!-- weight bars rendered by JS --></div>
+      <p class="attn-caption" id="attn-caption"></p>
+    </div>
+
+    <div class="prose">
+      <h3>What you’re seeing</h3>
+      <ul>
+        <li>The chosen <strong>query</strong> token is compared against every token’s
+          <strong>key</strong>; softmax turns those scores into weights that sum to
+          100% — shown as the bar under each chip and in the list.</li>
+        <li>The token’s output is the <strong>weighted sum of the value vectors</strong>:
+          it has now mixed in information from whatever it attended to.</li>
+        <li>Turn off the <strong>causal mask</strong> to let a token look at later
+          words. During generation we keep it on — token <em>t</em> can’t depend on
+          words that don’t exist yet.</li>
+      </ul>
+      <div class="cites">
+        <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.2.3 (p.52)</span>
+        <span class="chip chip--ds4">🔧 ds4 · flash_attn.metal, softmax.metal</span>
       </div>
     </div>
   </div>
@@ -116,8 +156,6 @@
     <p class="eyebrow">On the way</p>
     <h2>Diagrams we want to build next</h2>
     <ul>
-      <li><strong>Attention</strong> — hover a token, watch it attend to the past
-        (Q·Kᵀ → softmax → ·V).</li>
       <li><strong>The KV cache</strong> — see why decode does one token’s work instead
         of reprocessing the whole sequence.</li>
       <li><strong>BPE tokenizer playground</strong> — type text, watch it split into

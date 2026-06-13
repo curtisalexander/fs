@@ -14,7 +14,7 @@ built from scratch, in the open, to <strong>learn and teach</strong> how inferen
 
 A **failed star** (a brown dwarf) is smaller than a dwarf star: not enough mass
 to sustain fusion. This project is the smaller sibling of
-[**Dwarf Star (`ds4`)**](https://github.com/antirez/ds4), antirez's superb
+[**Dwarf Star (`ds4`)**](https://github.com/antirez/ds4), antirez's
 self-contained inference engine for DeepSeek-V4. Where `ds4` targets big MoE
 models on 96GB+ Macs, **Failed Star runs a *tiny* model on a 64GB MacBook Pro
 (M5)** — and trades raw capability for something else: every line is meant to be
