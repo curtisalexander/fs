@@ -1,0 +1,22 @@
+[package]
+name = "fs"
+version = "0.1.0"
+edition = "2024"
+description = "Failed Star — a tiny from-scratch LLM inference engine, built to learn."
+license = "MIT"
+
+# We keep a library crate (the engine) and a thin binary (the `fs` CLI) that
+# drives it. Splitting them means milestones can be unit-tested as library code
+# while `src/main.rs` stays a tiny dispatcher.
+[lib]
+name = "fs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fs"
+path = "src/main.rs"
+
+[dependencies]
+# Intentionally empty for M0. In the "tight, no hidden abstraction" spirit we
+# hand-roll the CLI arg parsing and the BPE itself. Dependencies get added only
+# when a milestone genuinely needs one (and we'll say why in PROGRESS.md).

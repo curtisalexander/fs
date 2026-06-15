@@ -1,0 +1,16 @@
+[project]
+name = "fs-scripts"
+version = "0.1.0"
+description = "Setup + data-generation scripts for Failed Star (fs). Run with uv."
+# Pin below 3.14 for now: the Rust-backed `tokenizers` wheel lags the newest
+# Python. uv will fetch a matching managed interpreter automatically.
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "huggingface-hub>=0.34",  # idempotent, cached downloads from the HF Hub
+    "tokenizers>=0.21",       # the OFFICIAL tokenizer, used only as a golden oracle
+]
+
+[tool.uv]
+# This is a collection of scripts, not an installable package — so don't try to
+# build `fs-scripts` itself; just resolve + pin its dependencies into uv.lock.
+package = false

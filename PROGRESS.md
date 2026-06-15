@@ -4,9 +4,61 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M0 — Tokenizer (not started)
-**Engine status:** scaffolding only, no code yet.
+**Current milestone:** M0 — Tokenizer (in progress: scaffolding + data pipeline done; BPE not yet implemented)
+**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies). Idempotent uv data pipeline live; golden vectors generated.
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 3 — 2026-06-14 — M0 scaffolding + idempotent data pipeline
+
+**Did:**
+- **Rust scaffolding (edition 2024).** `Cargo.toml` = lib `fs` (the engine) +
+  thin bin `fs` (the CLI), **zero dependencies**. `src/main.rs` hand-rolls argv
+  parsing (no clap) and dispatches `tokenize` / `detokenize` / `help`.
+  `src/lib.rs` → `pub mod tokenizer`. `cargo build` ✓.
+- **Tokenizer annotated sketch** (`src/tokenizer.rs`): full struct (6 fields),
+  3 public methods, 6 private helpers — real signatures + step-by-step
+  pseudo-code in comments, all bodies `todo!()`. Reads as the *shape* of
+  byte-level BPE before we implement. Documents the 4 encode stages
+  (pre-tokenize → bytes→unicode → merge → look-up) and the `" hello world"`
+  vs `"hello world"` leading-space behavior.
+- **Idempotent + scriptable data pipeline (Python via uv).** `scripts/` is a
+  uv project (`pyproject.toml` + `uv.lock`, managed CPython 3.13, deps
+  `huggingface_hub` + `tokenizers`). `fetch_model.py` pulls Qwen3-0.6B tokenizer
+  assets (~16 MB; `--weights` for the 1.5 GB later) — re-runs are no-ops.
+  `gen_golden.py` runs the **official** tokenizer to emit `tests/golden/
+  tokenizer.json` (14 tricky cases: leading spaces, CJK, emoji, code) — our M0
+  correctness oracle (committed, so `cargo test` needs no Python).
+- Extended `.gitignore` for Python (`.venv/`, `__pycache__/`). `models/` stays
+  ignored; `scripts/uv.lock` + `tests/golden/` are committed.
+
+**Decisions resolved this session:**
+- **Python = a uv project** (`pyproject.toml` + lockfile), not PEP-723 inline
+  scripts — one pinned, reproducible env shared across milestones. ✅
+- **Fetch via `huggingface_hub`** (cached/resumable/idempotent), not raw curl. ✅
+- **CLI = hand-rolled, zero-dep** arg parsing (ds4 "no hidden abstraction" ethos). ✅
+- Python is **only ever a one-shot oracle** (golden data), never a 2nd engine. ✅
+
+**Open decisions for M0 (pick up before/while implementing):**
+1. **Pre-tokenization regex.** Qwen's pattern needs Unicode classes (`\p{L}`,
+   `\p{N}`) **and** a negative look-ahead (`\s+(?!\S)`). The `regex` crate does
+   classes but not look-ahead; `fancy-regex` does both. Choose: **(a)** add
+   `fancy-regex` (exact, one dep) vs **(b)** hand-roll the splitter (zero deps,
+   more code + Unicode tables). This is where "zero deps" gets tested.
+2. **`Tokenizer::load` error type.** Currently `Result<Self, String>` (cheap,
+   keeps CLI compiling). Optionally graduate to a real error enum
+   (missing-file / bad-JSON / malformed-merge) — small idiomatic-Rust lesson.
+
+**M0 implementation order (bottom-up, each unit-tested vs the golden file):**
+1. `build_byte_encoder` — GPT-2 byte→unicode table; self-contained, no I/O. *(start here — independent of the regex decision)*
+2. `load_vocab` + `load_merges` — parse `vocab.json` / `merges.txt`.
+3. `bpe` — the greedy merge loop (the heart of M0).
+4. `pretokenize` — **after** resolving open decision #1.
+5. Wire `encode` / `decode`; verify against `tests/golden/tokenizer.json` + round-trip.
+
+**Method note:** continue sketch-first → read → implement-together, one helper at
+a time; pull the best explanations into `docs/01-tokenizer.md` + `learnings/`.
 
 ---
 

@@ -15,6 +15,11 @@ Inference Engineering.pdf
 /scratch/
 *.golden.npy
 
+# Python / uv (scripts/)
+.venv/
+__pycache__/
+*.pyc
+
 # macOS
 .DS_Store
 
