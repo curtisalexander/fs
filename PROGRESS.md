@@ -94,4 +94,5 @@
 2. `cargo init` the Rust project; lay out `src/`.
 3. Implement BPE encode/decode in Rust against Qwen's real vocab/merges.
 4. Verify token IDs match the official tokenizer on a string set; write
-   `docs/01-tokenizer.md` (cross-link book §2.2, ds4 `rax.c`, Raschka BPE).
+   `docs/01-tokenizer.md` (cross-link book §2.2, ds4 `ds4.c` BPE + hash table,
+   Raschka BPE; see also `learnings/02-radix-tree.md`).

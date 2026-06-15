@@ -75,8 +75,10 @@ Text is split into integer **token IDs** using a learned vocabulary (BPE). `"hel
 world"` → `[15339, 1917]`. At the end we do the reverse to print output.
 
 - 📖 Book: tokens are introduced in **§2.2 "LLM Inference Mechanics" (p.46)**.
-- 🔧 `ds4`: vocabulary/tokenizer machinery uses a **radix tree** — `reference/ds4/rax.c`,
-  `rax.h` (antirez's `rax` library). Tokenizer logic lives in `ds4.c`.
+- 🔧 `ds4`: the tokenizer lives in `ds4.c` and uses a **hash table** for
+  token→id / merge-rank lookups (`str_i32_table`, `ds4.c:20689`). *(Note: the
+  `rax.c` radix tree is **not** the tokenizer — it backs the agent's memory store
+  in `ds4_server.c`; see [`learnings/02-radix-tree.md`](learnings/02-radix-tree.md).)*
 - 🧭 Raschka: tokenization is a prerequisite he assumes; see his "Build a Large
   Language Model (From Scratch)" for a clean BPE walkthrough.
 
@@ -220,7 +222,7 @@ Raschka's MLA notes). These are stretch goals once the core engine breathes.
 | Layer | Book teaches | `ds4` implements | Failed Star will build |
 |---|---|---|---|
 | Concepts/vocabulary | ✅ everything | — | — (we cite the book) |
-| Tokenizer | mentions | `rax.c` + `ds4.c` | M0 (Rust) |
+| Tokenizer | mentions | `ds4.c` (hash table) | M0 (Rust) |
 | Forward pass | ✅ the math | `ds4.c` + `metal/*` | M2 (Rust + MSL) |
 | Sampling | ✅ | `metal/softmax,argsort` | M3 (Rust) |
 | KV cache | ✅ §5.3 | `ds4_kvstore.c`, SSD streaming | M4 (Rust, RAM-only first) |

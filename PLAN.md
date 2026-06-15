@@ -32,7 +32,7 @@ Legend: ☐ todo · ◐ in progress · ☑ done
 Text ↔ token IDs. BPE encode/decode against the chosen model's real vocabulary.
 - **Artifact:** `fs tokenize "hello world"` → IDs, and decode back to text, in Rust.
 - **Verify:** round-trip + match the official tokenizer's IDs on a set of strings.
-- 📖 §2.2 (p.46) · 🔧 `reference/ds4/rax.c`, `ds4.c` · 🧭 Raschka "LLM from scratch" BPE.
+- 📖 §2.2 (p.46) · 🔧 `reference/ds4/ds4.c` (BPE + `str_i32_table` hash table) · 🧭 Raschka "LLM from scratch" BPE.
 - **Why first:** no GPU, no weights, self-contained; it's the model's front door.
 
 ## M1 — Load the weights  ☐

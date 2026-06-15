@@ -71,7 +71,8 @@ it; we don't build its CUDA/ROCm/server/agent/distributed parts.
 | Core engine | `ds4.c` (~26k LOC), `ds4.h` | orchestration, tokenizer, graph |
 | **Metal backend** | `ds4_metal.m` (~26k LOC), `ds4_gpu.h` | host-side Metal via ObjC |
 | **Metal kernels** | `metal/` (19 `.metal` files) | one op each — see below |
-| Tokenizer support | `rax.c/.h` | radix tree (antirez's `rax`) |
+| Tokenizer | `ds4.c` | byte-level BPE; `str_i32_table` hash table for token→id |
+| Agent memory store | `rax.c/.h` | radix tree (antirez's `rax`), used from `ds4_server.c` |
 | KV cache | `ds4_kvstore.c/.h` | "KV cache as a disk citizen" |
 | SSD streaming | `ds4_ssd.c/.h` | stream weights/KV from SSD |
 | Quantization | `gguf-tools/` (+ `imatrix/`, `quality-testing/`) | GGUF gen + calibration |
