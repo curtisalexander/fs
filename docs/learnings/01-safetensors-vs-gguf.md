@@ -52,16 +52,16 @@ GGUF is built for *local inference distribution*: get a model running from **one
 self-contained file**. It carries everything.
 
 ```
-┌─ header ──────────────────────────────────────────────────────────────┐
+┌─ header ───────────────────────────────────────────────────────────────┐
 │ magic "GGUF" (0x46554747)  · version (u32) · n_tensors · n_metadata_kv │
-├─ metadata (key/value pairs) ──────────────────────────────────────────┤
+├─ metadata (key/value pairs) ───────────────────────────────────────────┤
 │ general.architecture, hyperparameters, AND the full tokenizer/vocab,   │
 │ chat template, etc. (~13 typed value kinds, arrays supported)          │
-├─ tensor info ─────────────────────────────────────────────────────────┤
+├─ tensor info ──────────────────────────────────────────────────────────┤
 │ per tensor: name · n_dims · dims[] · ggml_type (quant kind) · offset   │
-├─ padding to alignment ────────────────────────────────────────────────┤
+├─ padding to alignment ─────────────────────────────────────────────────┤
 │ tensor data: quantized blocks (Q4_K, Q2_K, IQ2_XXS, …) or f16/f32      │
-└───────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 Key differences from safetensors:

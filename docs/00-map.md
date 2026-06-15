@@ -32,31 +32,31 @@ streaming — is *making that loop correct, then fast, then small enough to fit.
 ## 1. The abstraction ladder (the whole machine at a glance)
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────────────┐
 │ RUNG 7  Chat / agent loop      "user types, model replies, repeat"    │  highest
 │         prompt templating, tool calls, sessions                       │
-├─────────────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 6  Generation loop        prefill → decode → sample → append     │
 │         temperature, top-k/top-p, stop tokens, streaming              │
-├─────────────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 5  The model forward pass  embeddings → N transformer blocks →   │
 │         final norm → logits                                           │
-├─────────────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 4  One transformer block   norm → attention (+RoPE, +KV cache)   │
 │         → norm → FFN/MoE → residual adds                              │
-├─────────────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 3  Tensor operations       matmul, softmax, RMSNorm, RoPE,       │
 │         SwiGLU, argmax/sampling                                       │
-├─────────────────────────────────────────────────────────────────────┤
-│ RUNG 2  Kernels                 each op as a Metal (MSL) shader, run   │
+├───────────────────────────────────────────────────────────────────────┤
+│ RUNG 2  Kernels                 each op as a Metal (MSL) shader, run  │
 │         on the GPU over a command buffer                              │
-├─────────────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 1  Memory & numbers        weights in RAM, dtype/quantization,   │
-│         unified memory, buffers, bandwidth                           │
-├─────────────────────────────────────────────────────────────────────┤
+│         unified memory, buffers, bandwidth                            │
+├───────────────────────────────────────────────────────────────────────┤
 │ RUNG 0  The hardware            Apple Silicon GPU: threads, SIMD,     │  lowest
-│         threadgroups, registers, the memory hierarchy                │
-└─────────────────────────────────────────────────────────────────────┘
+│         threadgroups, registers, the memory hierarchy                 │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 We will *build* roughly **bottom-meets-middle**: enough of rungs 1–3 to make
