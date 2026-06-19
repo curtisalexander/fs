@@ -80,13 +80,11 @@ pub struct Tokenizer {
     /// account for the gap between `vocab.json`'s size and config's
     /// `vocab_size` (151936). Not exercised by our first golden pass.
     special_tokens: HashMap<String, u32>,
-    // TODO(decision): we also need the PRE-TOKENIZATION regex (stage 1). Rust's
-    // std has no regex engine, and the Qwen pattern uses BOTH Unicode classes
-    // (\p{L}, \p{N}) and a negative look-ahead (\s+(?!\S)). The `regex` crate
-    // does Unicode classes but NOT look-ahead; `fancy-regex` does both. So the
-    // options are: (a) add `fancy-regex`, or (b) hand-roll a splitter for just
-    // this pattern. We'll choose together when we implement `pretokenize`. Until
-    // then there's no regex field here.
+    // M0 decision: Qwen's PRE-TOKENIZATION regex (stage 1) uses BOTH Unicode
+    // classes (\p{L}, \p{N}) and a negative look-ahead (\s+(?!\S)). We use
+    // `fancy-regex` for that exact compatibility glue instead of hand-rolling a
+    // Unicode/look-around splitter side quest. Add the compiled regex field when
+    // `pretokenize` is implemented.
 }
 
 impl Tokenizer {
@@ -146,7 +144,7 @@ impl Tokenizer {
     ///
     /// Example: " hello world" -> [" hello", " world"]   (spaces lead the word)
     fn pretokenize<'a>(&self, _text: &'a str) -> Vec<&'a str> {
-        todo!("pretokenize — depends on the regex DECISION noted on the struct")
+        todo!("pretokenize — implement with Qwen's fancy-regex pattern")
     }
 
     /// Stages 3+4 for ONE chunk already mapped into byte-level-unicode.

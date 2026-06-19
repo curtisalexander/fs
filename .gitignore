@@ -11,9 +11,12 @@
 # The book PDF (copyrighted — keep your own local copy; do not commit)
 Inference Engineering.pdf
 
-# Golden vectors / scratch artifacts (regenerate locally)
+# Scratch artifacts (regenerate locally; do not commit bulky/generated blobs)
 /scratch/
 *.golden.npy
+
+# Small, license-safe verification fixtures under tests/golden/ are intentional:
+# they are committed so cargo test can run without Python/network access.
 
 # Python / uv (scripts/)
 .venv/

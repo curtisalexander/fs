@@ -4,9 +4,55 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M0 — Tokenizer (in progress: scaffolding + data pipeline done; BPE not yet implemented)
-**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies). Idempotent uv data pipeline live; golden vectors generated.
+**Current milestone:** M0 — Tokenizer (in progress: setup aligned; BPE not yet implemented)
+**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies). `fancy-regex` added for exact Qwen pre-tokenization. Idempotent uv data pipeline live; golden vectors generated.
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 4 — 2026-06-19 — Pre-coding alignment + dependency/testing decisions
+
+**Did:**
+- Aligned public setup docs before implementation: README status/layout/model choice,
+  `PLAN.md` current milestone + doc numbering, `.gitignore` golden-fixture note.
+- Added [`docs/dev-loop.md`](docs/dev-loop.md): start/end session ritual, local
+  checks, uv oracle commands, site sync, and dependency policy.
+- Added [`docs/testing.md`](docs/testing.md): verification philosophy, unit vs
+  golden vs CLI vs benchmark checks, and M0 tokenizer testing plan.
+- Added Rust dependency **`fancy-regex`** for Qwen's exact pre-tokenization regex;
+  `cargo build` ✓.
+- Documented dependency freshness checks: Rust edition/toolchain check, Cargo
+  update dry-runs, uv-only Python management, and uv's 7-day `--exclude-newer`
+  age gate for Python updates.
+- Added `tools/license-check.sh` and documented the license policy: MIT project,
+  no GPL-family dependencies, manual review for weak-copyleft/unknown metadata.
+
+**Decisions resolved this session:**
+- **Dependency policy:** avoid dependencies that hide core inference concepts, but
+  allow focused deps for non-core side problems when they improve correctness and
+  avoid distracting side quests. ✅
+- **M0 regex:** use `fancy-regex`; hand-writing BPE is core, hand-writing a
+  Unicode/look-around regex engine is not. ✅
+- **M0 test shape:** use light inline unit tests for private helpers plus a light
+  integration test over `tests/golden/tokenizer.json`. ✅
+- **Milestone docs:** `docs/00-map.md` stays the map; milestone writeups start at
+  `docs/01-tokenizer.md`, then `docs/02-weights.md`, etc. ✅
+- **Python dependency management:** must use uv + `pyproject.toml`; no pip,
+  requirements files, ad-hoc virtualenv setup, or inline script metadata. ✅
+- **License policy:** reject GPL/AGPL/LGPL dependencies by default; warn/review
+  weak-copyleft or unknown license metadata. ✅
+
+**Still open for M0:**
+1. **`Tokenizer::load` error type.** Currently `Result<Self, String>` (cheap,
+   keeps CLI compiling). Optionally graduate to a real error enum
+   (missing-file / bad-JSON / malformed-merge) — small idiomatic-Rust lesson.
+
+**Next implementation order:**
+1. `build_byte_encoder` — GPT-2 byte→unicode table; self-contained, no I/O.
+2. `load_vocab` + `load_merges` — parse `vocab.json` / `merges.txt`.
+3. `bpe` — the greedy merge loop (the heart of M0).
+4. `pretokenize` — implement with Qwen's `fancy-regex` pattern.
+5. Wire `encode` / `decode`; verify against `tests/golden/tokenizer.json` + round-trip.
 
 ---
 

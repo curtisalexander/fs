@@ -17,6 +17,7 @@ name = "fs"
 path = "src/main.rs"
 
 [dependencies]
-# Intentionally empty for M0. In the "tight, no hidden abstraction" spirit we
-# hand-roll the CLI arg parsing and the BPE itself. Dependencies get added only
-# when a milestone genuinely needs one (and we'll say why in PROGRESS.md).
+# Qwen's pre-tokenization pattern uses Unicode classes plus look-around. That is
+# tokenizer compatibility glue, not the inference-engine idea we are here to
+# learn, so we use a focused regex dependency instead of hand-rolling it.
+fancy-regex = "0.18.0"

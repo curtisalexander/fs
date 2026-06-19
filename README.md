@@ -51,8 +51,9 @@ and go-deeper resources — those fill gaps; these three are what the docs lean 
   file, just like `ds4`'s `metal/` shaders.
 - **Metal via raw FFI / the Objective-C runtime — no convenience wrapper crate.**
   We send messages to Metal ourselves so nothing is hidden. Tight, like `ds4`.
-- **First model: a tiny dense model** (Llama-3.2-1B / Qwen3-0.6B class) — vanilla
-  attention (RoPE + GQA + SwiGLU + RMSNorm), easy to inspect and debug.
+- **First model: Qwen3-0.6B** — a tiny dense model with GQA, RoPE, SwiGLU, and
+  RMSNorm; small enough to inspect and debug while still looking like a real
+  modern LLM.
 - **Correctness via golden vectors:** match logits from the model's official
   implementation. (Python appears *only* as a one-shot oracle, never as a second
   engine.)
@@ -64,14 +65,20 @@ fs/
 ├── README.md                  ← you are here
 ├── PLAN.md                    ← the milestone curriculum (M0 … M7+)
 ├── PROGRESS.md                ← running session log; start here each session
-├── Inference Engineering.pdf  ← the book
+├── Inference Engineering.pdf  ← local copy of the book (ignored; bring your own)
+├── src/                       ← Rust engine + thin CLI
+├── scripts/                   ← uv-managed Python oracle/data scripts
+├── tests/golden/              ← committed golden fixtures for verification
+├── tools/                     ← site/sync helper scripts
 ├── docs/
 │   ├── prerequisites.md       ← what to know before diving in (read this first)
 │   ├── 00-map.md              ← THE BIG PICTURE of an inference engine
+│   ├── dev-loop.md            ← how to resume work after a break
+│   ├── testing.md             ← verification strategy and golden-vector plan
 │   ├── RESOURCES.md           ← cross-reference index (book §§, ds4 files, Raschka)
-│   └── learnings/            ← bite-sized notes on what we figured out & why
+│   └── learnings/             ← bite-sized notes on what we figured out & why
 ├── reference/ds4/             ← antirez's ds4 — pinned git submodule (read-only ref)
-└── (src/, kernels/, models/ … added as milestones land)
+└── models/                    ← downloaded model assets (ignored; generated locally)
 ```
 
 ## Where to start
@@ -84,10 +91,16 @@ fs/
    whatever depth interests you.
 3. Skim **[`PLAN.md`](PLAN.md)** — the milestones.
 4. Each session, open **[`PROGRESS.md`](PROGRESS.md)** to see what's next.
+5. If resuming development, use **[`docs/dev-loop.md`](docs/dev-loop.md)** and
+   **[`docs/testing.md`](docs/testing.md)** for the local checks and verification
+   strategy.
 
 ## Status
 
-🌱 **Scaffolding.** Big-picture map written. Next milestone: **M0 — the tokenizer.**
+🌱 **M0 — Tokenizer, in progress.** Rust scaffolding, the uv data pipeline, and
+committed golden tokenizer vectors are in place. Next step: implement the
+byte-level BPE tokenizer helper-by-helper and verify it against
+`tests/golden/tokenizer.json`.
 
 This is a slow, multi-session learning project. It is not (yet) fast, capable, or
 finished — that's the point. Local models keep getting better; the bet is that a
