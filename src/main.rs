@@ -71,7 +71,13 @@ fn cmd_tokenize(args: &[String]) -> ExitCode {
         }
     };
 
-    let ids = tokenizer.encode(text);
+    let ids = match tokenizer.encode(text) {
+        Ok(ids) => ids,
+        Err(e) => {
+            eprintln!("fs tokenize: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let rendered: Vec<String> = ids.iter().map(u32::to_string).collect();
     println!("{}", rendered.join(" "));
     ExitCode::SUCCESS
@@ -106,6 +112,14 @@ fn cmd_detokenize(args: &[String]) -> ExitCode {
         }
     };
 
-    println!("{}", tokenizer.decode(&ids));
-    ExitCode::SUCCESS
+    match tokenizer.decode(&ids) {
+        Ok(text) => {
+            println!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("fs detokenize: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

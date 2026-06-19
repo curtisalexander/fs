@@ -5,7 +5,7 @@
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
 **Current milestone:** M0 — Tokenizer (in progress: setup aligned; BPE not yet implemented)
-**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies). `fancy-regex` added for exact Qwen pre-tokenization. Idempotent uv data pipeline live; golden vectors generated.
+**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies) with custom tokenizer errors. `fancy-regex` added for exact Qwen pre-tokenization; `serde_json` added for tokenizer JSON assets. Idempotent uv data pipeline live; golden vectors generated.
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
 
 ---
@@ -19,8 +19,11 @@
   checks, uv oracle commands, site sync, and dependency policy.
 - Added [`docs/testing.md`](docs/testing.md): verification philosophy, unit vs
   golden vs CLI vs benchmark checks, and M0 tokenizer testing plan.
-- Added Rust dependency **`fancy-regex`** for Qwen's exact pre-tokenization regex;
-  `cargo build` ✓.
+- Added Rust dependency **`fancy-regex`** for Qwen's exact pre-tokenization regex.
+- Added Rust dependency **`serde_json`** for tokenizer JSON assets; JSON parsing
+  is not the tokenizer lesson.
+- Added a hand-written `TokenizerError` enum + `Result<T>` alias and moved
+  tokenizer public/helper signatures off `String` errors. `cargo test` ✓.
 - Documented dependency freshness checks: Rust edition/toolchain check, Cargo
   update dry-runs, uv-only Python management, and uv's 7-day `--exclude-newer`
   age gate for Python updates.
@@ -33,6 +36,10 @@
   avoid distracting side quests. ✅
 - **M0 regex:** use `fancy-regex`; hand-writing BPE is core, hand-writing a
   Unicode/look-around regex engine is not. ✅
+- **M0 JSON:** use `serde_json`; correctly parsing JSON is not the tokenizer
+  lesson. ✅
+- **M0 errors:** use a small custom `TokenizerError` enum right away, hand-written
+  rather than `thiserror`, so failure modes stay visible and testable. ✅
 - **M0 test shape:** use light inline unit tests for private helpers plus a light
   integration test over `tests/golden/tokenizer.json`. ✅
 - **Milestone docs:** `docs/00-map.md` stays the map; milestone writeups start at
@@ -42,10 +49,7 @@
 - **License policy:** reject GPL/AGPL/LGPL dependencies by default; warn/review
   weak-copyleft or unknown license metadata. ✅
 
-**Still open for M0:**
-1. **`Tokenizer::load` error type.** Currently `Result<Self, String>` (cheap,
-   keeps CLI compiling). Optionally graduate to a real error enum
-   (missing-file / bad-JSON / malformed-merge) — small idiomatic-Rust lesson.
+**Still open for M0:** none before implementation.
 
 **Next implementation order:**
 1. `build_byte_encoder` — GPT-2 byte→unicode table; self-contained, no I/O.

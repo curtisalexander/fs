@@ -48,7 +48,92 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::error::Error;
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+/// Tokenizer-specific result type.
+pub type Result<T> = std::result::Result<T, TokenizerError>;
+
+/// Errors that can happen while loading or running the tokenizer.
+///
+/// We keep this hand-written instead of pulling in `thiserror`: the point is to
+/// make the failure modes visible without adding another abstraction layer.
+#[derive(Debug)]
+pub enum TokenizerError {
+    /// Could not read a tokenizer asset from disk.
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// Could not parse a JSON tokenizer asset.
+    Json {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
+    /// `vocab.json` parsed as JSON, but its shape/content is not what we need.
+    BadVocab { path: PathBuf, message: String },
+
+    /// `merges.txt` has a malformed line or inconsistent merge rule.
+    BadMerges {
+        path: PathBuf,
+        line: usize,
+        message: String,
+    },
+
+    /// Qwen's pre-tokenization regex failed to compile or run.
+    Regex(fancy_regex::Error),
+
+    /// BPE produced a piece that was not present in the vocabulary.
+    UnknownToken(String),
+
+    /// Decode was asked to use a token id outside `id_to_token`.
+    InvalidTokenId(u32),
+}
+
+impl fmt::Display for TokenizerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io { path, source } => {
+                write!(f, "could not read {}: {source}", path.display())
+            }
+            Self::Json { path, source } => {
+                write!(f, "could not parse JSON in {}: {source}", path.display())
+            }
+            Self::BadVocab { path, message } => {
+                write!(f, "bad vocab file {}: {message}", path.display())
+            }
+            Self::BadMerges {
+                path,
+                line,
+                message,
+            } => write!(
+                f,
+                "bad merges file {} at line {line}: {message}",
+                path.display()
+            ),
+            Self::Regex(source) => write!(f, "tokenizer regex error: {source}"),
+            Self::UnknownToken(token) => write!(f, "token not found in vocab: {token:?}"),
+            Self::InvalidTokenId(id) => write!(f, "invalid token id: {id}"),
+        }
+    }
+}
+
+impl Error for TokenizerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            Self::Json { source, .. } => Some(source),
+            Self::Regex(source) => Some(source),
+            Self::BadVocab { .. }
+            | Self::BadMerges { .. }
+            | Self::UnknownToken(_)
+            | Self::InvalidTokenId(_) => None,
+        }
+    }
+}
 
 /// Owns the loaded vocabulary + merge rules and maps text <-> token IDs.
 ///
@@ -98,10 +183,10 @@ impl Tokenizer {
     ///   5. let special_tokens            = load_special_tokens(dir/"tokenizer_config.json")?  // later
     ///   6. Ok(Tokenizer { … })
     ///
-    /// NOTE on the return type: `Result<Self, String>` is a deliberately cheap
-    /// placeholder so the CLI compiles. We may graduate this to a real error
-    /// enum (missing file vs. bad JSON vs. malformed merge line) when we wire it.
-    pub fn load(_model_dir: impl AsRef<Path>) -> Result<Self, String> {
+    /// Uses the custom `TokenizerError` enum so missing files, malformed JSON,
+    /// malformed merges, and regex problems stay distinguishable in tests and
+    /// CLI output.
+    pub fn load(_model_dir: impl AsRef<Path>) -> Result<Self> {
         todo!("Tokenizer::load — implement after we read load_vocab/load_merges")
     }
 
@@ -115,7 +200,7 @@ impl Tokenizer {
     ///           chunk.bytes().map(|b| self.byte_encoder[b]).collect()  // stage 2
     ///       ids.extend(self.bpe(&mapped))                        // stages 3+4
     ///   ids
-    pub fn encode(&self, _text: &str) -> Vec<u32> {
+    pub fn encode(&self, _text: &str) -> Result<Vec<u32>> {
         todo!("Tokenizer::encode — implement after pretokenize + bpe")
     }
 
@@ -131,7 +216,7 @@ impl Tokenizer {
     ///
     /// (`_lossy` because an arbitrary ID slice can split a multi-byte char;
     /// for a faithful round-trip the bytes are always valid UTF-8.)
-    pub fn decode(&self, _ids: &[u32]) -> String {
+    pub fn decode(&self, _ids: &[u32]) -> Result<String> {
         todo!("Tokenizer::decode — implement after id_to_token + byte_decoder exist")
     }
 
@@ -143,7 +228,7 @@ impl Tokenizer {
     /// Returns borrowed slices into `text` (no copying).
     ///
     /// Example: " hello world" -> [" hello", " world"]   (spaces lead the word)
-    fn pretokenize<'a>(&self, _text: &'a str) -> Vec<&'a str> {
+    fn pretokenize<'a>(&self, _text: &'a str) -> Result<Vec<&'a str>> {
         todo!("pretokenize — implement with Qwen's fancy-regex pattern")
     }
 
@@ -164,7 +249,7 @@ impl Tokenizer {
     ///
     /// Every single byte-level-unicode char is itself in the vocab, and every
     /// merge result is too, so the final `token_to_id[s]` lookups never miss.
-    fn bpe(&self, _piece: &str) -> Vec<u32> {
+    fn bpe(&self, _piece: &str) -> Result<Vec<u32>> {
         todo!("bpe — the merge loop; the heart of M0")
     }
 
@@ -177,14 +262,14 @@ impl Tokenizer {
 
     /// Parse `vocab.json` into the forward map and the dense reverse vector.
     /// Returns (token_to_id, id_to_token).
-    fn load_vocab(_path: &Path) -> Result<(HashMap<String, u32>, Vec<String>), String> {
+    fn load_vocab(_path: &Path) -> Result<(HashMap<String, u32>, Vec<String>)> {
         todo!("load_vocab — read JSON object of piece -> id")
     }
 
     /// Parse `merges.txt` into `(left, right) -> rank`. Skip the `#version`
     /// header; the rank is the (post-header) line index — earlier = higher
     /// priority. Each line is exactly two space-separated pieces.
-    fn load_merges(_path: &Path) -> Result<HashMap<(String, String), u32>, String> {
+    fn load_merges(_path: &Path) -> Result<HashMap<(String, String), u32>> {
         todo!("load_merges — line number becomes the merge rank")
     }
 }

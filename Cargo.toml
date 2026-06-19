@@ -21,3 +21,7 @@ path = "src/main.rs"
 # tokenizer compatibility glue, not the inference-engine idea we are here to
 # learn, so we use a focused regex dependency instead of hand-rolling it.
 fancy-regex = "0.18.0"
+
+# Qwen's tokenizer assets are JSON. Parsing JSON correctly is not the tokenizer
+# lesson, so use the standard Rust ecosystem parser instead of a side quest.
+serde_json = "1.0.150"
