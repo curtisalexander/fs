@@ -28,14 +28,14 @@ Legend: ☐ todo · ◐ in progress · ☑ done
 
 ---
 
-## M0 — Tokenizer  ◐  *(current)*
+## M0 — Tokenizer  ☑  *(done — see [`docs/01-tokenizer.md`](docs/01-tokenizer.md))*
 Text ↔ token IDs. BPE encode/decode against the chosen model's real vocabulary.
 - **Artifact:** `fs tokenize "hello world"` → IDs, and decode back to text, in Rust.
 - **Verify:** round-trip + match the official tokenizer's IDs on a set of strings.
 - 📖 §2.2 (p.46) · 🔧 `reference/ds4/ds4.c` (BPE + `str_i32_table` hash table) · 🧭 Raschka "LLM from scratch" BPE.
 - **Why first:** no GPU, no weights, self-contained; it's the model's front door.
 
-## M1 — Load the weights  ☐
+## M1 — Load the weights  ◐  *(current)*
 Parse the model file format and map every tensor (names, shapes, dtypes) into
 memory. Read `config.json` (layers, dims, heads, vocab).
 - **Artifact:** `fs inspect model/` prints the architecture + tensor table.
