@@ -1,6 +1,6 @@
 # 01 — Tokenizer (M0): text ↔ token IDs
 
-> **Milestone:** M0 · **Status:** ✅ core done — all 14 golden cases pass, CLI runs · **Date:** 2026-06-23
+> **Milestone:** M0 · **Status:** ✅ done — all 14 golden cases pass, special tokens supported, CLI runs · **Date:** 2026-06-23
 >
 > 📖 *Inference Engineering* §2.2 "LLM Inference Mechanics" (p.46)
 > 🔧 `ds4`: `ds4.c` — `bpe_tokenize_text` (~`ds4.c:21140`), `gpt2_byte_to_codepoint` (`ds4.c:20896`), the `str_i32_table` vocab + merge-rank hash tables (`ds4.c:20689`)
@@ -44,32 +44,40 @@ text ──pretokenize──▶ chunks ("words")
 
 | stage | what | code (`src/tokenizer.rs`) |
 |---|---|---|
-| 1 | split text into word-chunks via Qwen's regex | `pretokenize` + `PRETOKENIZE_PATTERN` |
+| 1 | split text into word-chunks via Qwen's regex | `pretokenize` (regex read from `tokenizer.json`) |
 | 2 | remap each raw byte to a printable char | `build_byte_encoder` |
 | 3 | greedily merge adjacent pairs by rank | `bpe` + `adjacent_pairs` + `merge_pair` |
 | 4 | look each surviving piece up as an id | the tail of `bpe` |
 
+Before stage 1, any **special-token literal** (`<|im_start|>` …) is carved out and
+emitted as its id directly, bypassing BPE — see `split_on_special_tokens`.
+
 **Decoding** reverses 4→2: `id → piece` (`id_to_token`), concatenate, then undo the
 byte map (`byte_decoder`) to recover the raw UTF-8 bytes. No regex, no merging —
-the merges are already baked into the pieces.
+the merges are already baked into the pieces. A special id decodes straight to its
+literal text.
 
 ---
 
 ## The data we load
 
-From `models/qwen3-0.6b/` (fetched by `scripts/fetch_model.py`, git-ignored):
+Everything comes from a **single file**, `models/qwen3-0.6b/tokenizer.json` (the
+official HF tokenizer, fetched by `scripts/fetch_model.py`, git-ignored). It is a
+superset of GPT-2's old split `vocab.json` + `merges.txt`, and it's what newer
+models ship — so we parse it directly:
 
-- **`vocab.json`** — `{ "<piece>": id }`, 151,643 entries, ids contiguous `0..=151642`.
-  Keys are in *byte-level-unicode*, so `" world"` is stored as `"Ġworld"`.
-  → `token_to_id` (forward) + `id_to_token` (a dense `Vec` indexed by id).
-- **`merges.txt`** — a `#version` header, then one `left␣right` rule per line in
-  **priority order**. → `merge_ranks: (left, right) → rank`, where rank = position
-  after the header (first rule = rank 0).
-- The **pre-tokenization regex** — copied verbatim out of `tokenizer.json`'s
-  `pre_tokenizer` field.
+- **`model.vocab`** — `{ "<piece>": id }`, 151,643 entries, ids contiguous
+  `0..=151642`. Keys are in *byte-level-unicode*, so `" world"` is stored as
+  `"Ġworld"`. → `token_to_id` (forward) + `id_to_token` (a dense `Vec` by id).
+- **`model.merges`** — an array of `["left","right"]` pairs already in **priority
+  order**, so `merge_ranks: (left, right) → rank` where rank is just the array
+  index (first pair = rank 0). No header to skip. (We also accept the legacy
+  `"left right"` string form for cross-model robustness.)
+- **`pre_tokenizer`** — the stage-1 split regex, read straight from the file.
+- **`added_tokens`** — the special tokens (`content ↔ id`) that bypass BPE.
 
-`Tokenizer::load` calls the parsers, builds the byte map and its inverse, and
-compiles the regex. Special tokens are stubbed empty for M0 (see below).
+`Tokenizer::load` reads `tokenizer.json` once, builds the byte map and its
+inverse, compiles the regex, and populates the special-token maps.
 
 ---
 
@@ -77,7 +85,7 @@ compiles the regex. Special tokens are stubbed empty for M0 (see below).
 
 `"hello"` is one chunk (no spaces), all printable ASCII, so its byte-level form is
 just `"hello"`. BPE starts from single chars and applies the lowest-rank merge each
-pass (`#N` = the rank from Qwen's real `merges.txt`):
+pass (`#N` = the rank from Qwen's real merge list, `model.merges` in `tokenizer.json`):
 
 | pass | symbols | candidate pairs (rank) | winner |
 |---|---|---|---|
@@ -125,11 +133,13 @@ and the code can't drift.
 
 - **Each digit is its own chunk.** Qwen's pattern uses `\p{N}` (one), not `\p{N}+`,
   so `"123"` → `["1","2","3"]`. Easy to get wrong by copying GPT-4's `\p{N}{1,3}`.
-  We copy Qwen's pattern *verbatim* from `tokenizer.json` rather than retype it.
+  We read Qwen's pattern straight from `tokenizer.json` rather than retype it.
 
-- **Merge rank is off-by-one bait.** The first real merge line is rank **0**, not 1
-  — the `#version` header is skipped without consuming a rank. A wrong base would
-  silently corrupt *every* tokenization. Guarded by `load_merges_ranks_from_zero...`.
+- **Merge order is everything.** `model.merges` is already in priority order, so
+  rank = array index (first pair = rank 0). Getting the base/order wrong would
+  silently corrupt *every* tokenization. (GPT-2's old `merges.txt` had a `#version`
+  header to skip — a classic off-by-one trap the JSON array sidesteps.) Guarded by
+  `build_merges_ranks_from_zero`; we also accept the legacy `"left right"` form.
 
 - **`merge_pair` is non-overlapping.** Merging `(a,a)` over `[a,a,a]` yields
   `[aa,a]`, not a reused middle `a`. The implementation consumes both halves on a
@@ -156,22 +166,26 @@ leading/trailing spaces, CJK, emoji, code with tabs/newlines, digit runs.
 
 All 14 pass. Exact-ID parity across a diverse set *is* the definition of "works
 with this model" — it proves the byte map, the regex, and the merge order are all
-correct simultaneously. (The integration test skips with a notice if `models/` is
-absent, so `cargo test` is green on a fresh checkout; it validates fully once the
-assets are fetched.) Plus 13 unit tests cover each helper in isolation.
+correct simultaneously. A second integration test covers special tokens
+(`<|im_start|>` → `151644`, carving, round-trip). (Both skip with a notice if
+`models/` is absent, so `cargo test` is green on a fresh checkout; they validate
+fully once the assets are fetched.) Plus 17 unit tests cover each helper in
+isolation.
 
 ---
 
-## What's stubbed / deferred
+## What's deferred
 
-- **Special tokens** (`<|im_start|>`, `<|endoftext|>` …) are stubbed as an empty
-  map. They must match verbatim and *bypass* BPE; the golden never exercises them.
-  This is the natural M0 follow-up if we want chat-template encoding. (The gap
-  between `vocab.json`'s 151,643 and config's `vocab_size` 151,936 is these tokens.)
 - **`bpe` performance.** The merge loop rescans all pairs each pass — O(n²) per
   chunk. Fine because `pretokenize` bounds n to one word. **Deferred optimization:**
   memoize `bpe(word)` in a `HashMap` (GPT-2 does this). Recorded in the `bpe` doc
   comment and `PROGRESS.md`.
+
+> **Special tokens are now supported** (no longer stubbed). They're loaded from
+> `tokenizer.json`'s `added_tokens` (ids 151643–151668; the gap up to config's
+> `vocab_size` 151,936 is reserved/unused slots), carved out in `encode`, and
+> decoded back in `decode`. What's *not* here yet is the **chat template** — wrapping
+> a conversation in `<|im_start|>`/`<|im_end|>` turns — which is an M3 concern.
 
 **Next:** M1 — load the weights (safetensors); parse `config.json` and map every
 tensor. See [`PLAN.md`](../PLAN.md).

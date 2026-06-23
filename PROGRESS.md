@@ -4,9 +4,49 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M0 — Tokenizer (✅ core complete: all four stages implemented, **14/14 golden cases pass**, CLI runs; special-token carving deferred). Next up: **M1 — load the weights**.
-**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B's real vocab. Full byte-level BPE lives in `src/tokenizer.rs` (`build_byte_encoder`, `load_vocab`/`load_merges`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, and the wired `load`/`encode`/`decode`). 13 unit tests + 1 golden integration test green, no warnings. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
+**Current milestone:** M0 — Tokenizer (✅ complete: all four stages + special tokens, **14/14 golden cases pass**, CLI runs, single-file `tokenizer.json` source). Next up: **M1 — load the weights**.
+**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B. The tokenizer loads everything from the single `tokenizer.json` (vocab + merges + regex + special tokens) in `src/tokenizer.rs` (`build_byte_encoder`, `build_vocab`/`build_merges`, `extract_pattern`, `build_special_tokens`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, special-token carving, and the wired `load`/`encode`/`decode`). 17 unit + 2 golden integration tests green; no warnings, clippy clean. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 7 — 2026-06-23 — Future-proof: single-file `tokenizer.json` + special tokens
+
+**Did:** switched the tokenizer's data source from the GPT-2 split `vocab.json` +
+`merges.txt` to the official **single `tokenizer.json`** (what newer models ship),
+and implemented special tokens off the back of it.
+- Replaced the file-reading `load_vocab`/`load_merges` with JSON-parsing helpers:
+  `build_vocab` (`model.vocab`), `build_merges` (`model.merges` — an array of
+  `["l","r"]` pairs, rank = index; also accepts the legacy `"l r"` string form for
+  cross-model robustness), `extract_pattern` (regex from `pre_tokenizer`),
+  `build_special_tokens` (`added_tokens`), plus a `read_json` helper.
+- **Special tokens are now real:** `special_tokens` (content→id) + `special_ids`
+  (id→content); `encode` carves special literals out before BPE via
+  `split_on_special_tokens` (longest-match), `decode` emits their literal text.
+- Consolidated `BadVocab`/`BadMerges` → one `BadTokenizer { path, message }` (single
+  file now). Regex is read from `tokenizer.json`; `PRETOKENIZE_PATTERN` kept as a
+  `#[cfg(test)]` reference for the unit tests.
+- Trimmed `scripts/fetch_model.py` (no longer fetches `vocab.json`/`merges.txt`) and
+  deleted the now-unused local copies from `models/qwen3-0.6b/`.
+- Tests: **17 unit** (incl. `build_vocab`/`build_merges` array + legacy forms,
+  `extract_pattern`, special-token carving/decoding) + **2 golden integration**
+  (the 14-case parity test, plus a special-token test: `<|im_start|>` → 151644,
+  carving, round-trip). All green; `cargo clippy` clean.
+- Swept all comments/docs/site for the change: `docs/01-tokenizer.md` + `.html`
+  (data section, gotchas, verify/deferred), `docs/testing.md`, this file.
+
+**Decisions resolved this session:**
+- **Single source of truth = `tokenizer.json`.** Future-proof: newer models ship
+  only this file; merges are structured (no whitespace-splitting), and specials +
+  regex live inline. ✅
+- **`build_merges` accepts both** the modern `["l","r"]` array and legacy `"l r"`
+  string forms, for cross-model robustness. ✅
+- **Special tokens implemented now**, not deferred. The remaining special-token
+  work — the **chat template** (wrapping turns in `<|im_start|>`/`<|im_end|>`) — is
+  an M3 concern. ✅
+- ⏳ **Still deferred:** the `bpe` HashMap memoization (see Session 5 + the `bpe` doc).
+
+**Next:** M1 — load the weights (safetensors + `config.json`; `fs inspect model/`).
 
 ---
 

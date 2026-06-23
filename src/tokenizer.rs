@@ -1,52 +1,53 @@
 //! Byte-level BPE tokenizer for Qwen3-0.6B.  (Milestone M0)
 //!
-//! STATUS: **annotated sketch.** This is the *shape* of the whole thing — real
-//! fields, real helper signatures, and step-by-step pseudo-code in comments —
-//! but every body is still `todo!()`. We read this top-to-bottom, then fill in
-//! one method at a time, together. Nothing here runs yet; it only compiles.
-//!
 //! ──────────────────────────────────────────────────────────────────────────
 //! THE BIG PICTURE — what "byte-level BPE" means (GPT-2 → Qwen lineage)
 //! ──────────────────────────────────────────────────────────────────────────
-//! Encoding text → token IDs happens in four stages:
+//! Encoding text → token IDs happens in four stages (with special-token carving
+//! sitting in front — see `encode`):
 //!
 //!   1. PRE-TOKENIZE.  A regex chops the text into chunks ("words"), so a merge
 //!      can never cross, say, a word/punctuation boundary. Crucially a leading
 //!      space stays *attached* to the word after it — that's why our golden has
-//!          "hello world"  -> [14990, 1879]
-//!          " hello world" -> [23811, 1879]   (different FIRST token)
+//!      "hello world" -> [14990, 1879] and " hello world" -> [23811, 1879]
+//!      (note the different FIRST token).
 //!
 //!   2. BYTES → "BYTE-LEVEL UNICODE".  Each chunk is raw UTF-8 bytes. We remap
 //!      all 256 byte values onto printable Unicode chars (GPT-2's trick), so a
 //!      token string never contains a real space/newline/control byte. Under
 //!      this map a space (0x20) becomes 'Ġ', a newline (0x0A) becomes 'Ċ'. The
-//!      vocab on disk is written in THIS alphabet — `vocab.json` literally has
-//!      keys like "Ġworld".
+//!      vocab on disk is written in THIS alphabet — it literally has keys like
+//!      "Ġworld".
 //!
 //!   3. MERGE.  Starting from single chars, repeatedly glue the adjacent pair
-//!      with the best (lowest-numbered) rank in `merges.txt`, until no adjacent
-//!      pair is mergeable. The survivors are the final token pieces.
+//!      with the best (lowest-numbered) rank in the merge list, until no
+//!      adjacent pair is mergeable. The survivors are the final token pieces.
 //!
 //!   4. LOOK UP.  Each final piece is a key in the vocab → its integer ID.
 //!
 //! Decoding reverses 4→2: IDs → pieces → concatenate → undo the byte map →
-//! interpret the bytes as UTF-8.
+//! interpret the bytes as UTF-8 (special-token IDs decode to their literal text).
 //!
-//! Inputs on disk (from `scripts/fetch_model.py`, in `models/qwen3-0.6b/`):
-//!   - `vocab.json`   — { "<piece in byte-level-unicode>": id, … }
-//!   - `merges.txt`   — one "<left> <right>" per line, in PRIORITY order
-//!                      (line 0 is a "#version:" header; earlier line = better).
-//!   - `tokenizer_config.json` / `tokenizer.json` — special tokens + the regex.
+//! SINGLE SOURCE OF TRUTH: `models/qwen3-0.6b/tokenizer.json` — the official
+//! Hugging Face tokenizer file. One file carries everything we need:
+//!   - `model.vocab`   — { "<piece in byte-level-unicode>": id }
+//!   - `model.merges`  — ["<left>","<right>"] pairs, in PRIORITY order (rank = index)
+//!   - `pre_tokenizer` — the stage-1 split regex
+//!   - `added_tokens`  — special tokens (content ↔ id) that bypass BPE
+//!
+//! We used to read GPT-2's split `vocab.json` + `merges.txt`; `tokenizer.json`
+//! supersedes both and is what newer models ship, so we parse it directly.
+//! (See docs/01-tokenizer.md.)
 //!
 //! Verify (M0 "done"): reproduce `tests/golden/tokenizer.json` exactly, and
-//! round-trip decode(encode(s)) == s. We generated that file from the official
-//! tokenizer with `add_special_tokens=False` on plain text — so for the first
-//! pass we can ignore special-token *insertion* and focus on stages 1–4.
+//! round-trip decode(encode(s)) == s.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+use serde_json::{Map, Value};
 
 /// Tokenizer-specific result type.
 pub type Result<T> = std::result::Result<T, TokenizerError>;
@@ -69,15 +70,10 @@ pub enum TokenizerError {
         source: serde_json::Error,
     },
 
-    /// `vocab.json` parsed as JSON, but its shape/content is not what we need.
-    BadVocab { path: PathBuf, message: String },
-
-    /// `merges.txt` has a malformed line or inconsistent merge rule.
-    BadMerges {
-        path: PathBuf,
-        line: usize,
-        message: String,
-    },
+    /// `tokenizer.json` parsed as JSON, but its structure/content is not what we
+    /// need: a missing `model.vocab`, a malformed merge entry, a non-contiguous
+    /// vocab, no pre-tokenizer regex, a bad `added_tokens` entry, and so on.
+    BadTokenizer { path: PathBuf, message: String },
 
     /// Qwen's pre-tokenization regex failed to compile or run.
     Regex(fancy_regex::Error),
@@ -98,18 +94,9 @@ impl fmt::Display for TokenizerError {
             Self::Json { path, source } => {
                 write!(f, "could not parse JSON in {}: {source}", path.display())
             }
-            Self::BadVocab { path, message } => {
-                write!(f, "bad vocab file {}: {message}", path.display())
+            Self::BadTokenizer { path, message } => {
+                write!(f, "bad tokenizer file {}: {message}", path.display())
             }
-            Self::BadMerges {
-                path,
-                line,
-                message,
-            } => write!(
-                f,
-                "bad merges file {} at line {line}: {message}",
-                path.display()
-            ),
             Self::Regex(source) => write!(f, "tokenizer regex error: {source}"),
             Self::UnknownToken(token) => write!(f, "token not found in vocab: {token:?}"),
             Self::InvalidTokenId(id) => write!(f, "invalid token id: {id}"),
@@ -123,20 +110,25 @@ impl Error for TokenizerError {
             Self::Io { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
             Self::Regex(source) => Some(source),
-            Self::BadVocab { .. }
-            | Self::BadMerges { .. }
-            | Self::UnknownToken(_)
-            | Self::InvalidTokenId(_) => None,
+            Self::BadTokenizer { .. } | Self::UnknownToken(_) | Self::InvalidTokenId(_) => None,
         }
     }
 }
 
+/// One slice of input on the way into `encode`: either a special token matched
+/// verbatim (already resolved to its id), or a run of ordinary text still to be
+/// pre-tokenized + BPE'd.
+enum Segment<'a> {
+    Special(u32),
+    Normal(&'a str),
+}
+
 /// Owns the loaded vocabulary + merge rules and maps text <-> token IDs.
 ///
-/// All the string keys here live in the *byte-level-unicode* alphabet (stage 2
-/// above), NOT raw UTF-8 — e.g. the piece for " world" is stored as "Ġworld".
+/// All the BPE string keys here live in the *byte-level-unicode* alphabet (stage
+/// 2 above), NOT raw UTF-8 — e.g. the piece for " world" is stored as "Ġworld".
 pub struct Tokenizer {
-    /// piece (byte-level-unicode) → token id.  Built from `vocab.json`.
+    /// piece (byte-level-unicode) → token id.  Built from `model.vocab`.
     token_to_id: HashMap<String, u32>,
 
     /// token id → piece.  The inverse of `token_to_id`, for decoding.
@@ -144,7 +136,7 @@ pub struct Tokenizer {
     id_to_token: Vec<String>,
 
     /// A merge rule `(left, right)` → its rank (priority). LOWER = applied
-    /// first. Built from `merges.txt` (line number = rank). During stage 3 we
+    /// first. Built from `model.merges` (array index = rank). During stage 3 we
     /// pick, among a chunk's adjacent pairs, the one with the smallest rank.
     merge_ranks: HashMap<(String, String), u32>,
 
@@ -153,52 +145,58 @@ pub struct Tokenizer {
     byte_encoder: [char; 256],
 
     /// The inverse map: byte-level-unicode char → original byte. Used by
-    /// `decode` to turn pieces back into raw bytes.
+    /// `decode` to turn ordinary pieces back into raw bytes.
     byte_decoder: HashMap<char, u8>,
 
-    /// Special/added tokens that must match VERBATIM and bypass BPE, e.g.
-    /// "<|im_start|>", "<|endoftext|>". From `tokenizer_config.json`. These
-    /// account for the gap between `vocab.json`'s size and config's
-    /// `vocab_size` (151936). Not exercised by our first golden pass.
-    #[allow(dead_code)] // wired in phase 2 (special-token carving); stubbed empty for M0
+    /// Special/added tokens that match VERBATIM and bypass BPE, e.g.
+    /// "<|im_start|>", "<|endoftext|>".  content → id.  From `added_tokens`.
+    /// Their ids sit just past the BPE vocab (151643+), so they are NOT in
+    /// `token_to_id`/`id_to_token`; `encode` carves them out before stage 1.
     special_tokens: HashMap<String, u32>,
 
-    /// Compiled stage-1 pre-tokenization regex (see `PRETOKENIZE_PATTERN`).
-    /// Qwen's pattern needs BOTH Unicode classes (\p{L}, \p{N}) and a negative
-    /// look-ahead (\s+(?!\S)), which is why we depend on `fancy-regex` instead of
-    /// the `regex` crate. Compiled once in `load`.
+    /// The reverse of `special_tokens`: id → content, so `decode` can turn a
+    /// special id straight back into its literal text.
+    special_ids: HashMap<u32, String>,
+
+    /// Compiled stage-1 pre-tokenization regex, read from `tokenizer.json`'s
+    /// `pre_tokenizer`. Qwen's pattern needs BOTH Unicode classes (\p{L}, \p{N})
+    /// and a negative look-ahead (\s+(?!\S)), which is why we depend on
+    /// `fancy-regex` instead of the `regex` crate.
     regex: fancy_regex::Regex,
 }
 
-/// Qwen3's exact pre-tokenization pattern, copied VERBATIM from
-/// `tokenizer.json` (`pre_tokenizer` → Split → Regex) — this is the GPT-4 /
-/// cl100k style. Each match is one chunk, and the matches tile the whole input.
-/// The branches, in order: contractions (`'s`, `'t`, …, case-insensitive); an
-/// optional leading symbol then a run of letters (this is what keeps a leading
-/// space attached, e.g. " world"); a SINGLE digit; an optional space then a run
-/// of symbols; newline runs; trailing whitespace via the `(?!\S)` look-ahead;
-/// and any remaining whitespace. The look-ahead is the reason for fancy-regex.
-const PRETOKENIZE_PATTERN: &str =
-    r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
-
 impl Tokenizer {
-    /// Load vocab + merges from a model directory (e.g. `models/qwen3-0.6b`).
+    /// Load the tokenizer from a model directory (e.g. `models/qwen3-0.6b`),
+    /// reading everything from `tokenizer.json`.
     ///
-    /// PSEUDO-CODE:
-    ///   1. let (token_to_id, id_to_token) = load_vocab(dir/"vocab.json")?
-    ///   2. let merge_ranks               = load_merges(dir/"merges.txt")?
-    ///   3. let byte_encoder              = build_byte_encoder()
-    ///   4. let byte_decoder              = invert(byte_encoder)
-    ///   5. let special_tokens            = load_special_tokens(dir/"tokenizer_config.json")?  // later
-    ///   6. Ok(Tokenizer { … })
-    ///
-    /// Uses the custom `TokenizerError` enum so missing files, malformed JSON,
-    /// malformed merges, and regex problems stay distinguishable in tests and
-    /// CLI output.
+    /// Uses the custom `TokenizerError` enum so a missing file, malformed JSON,
+    /// a malformed structure, or a regex problem stay distinguishable in tests
+    /// and CLI output.
     pub fn load(model_dir: impl AsRef<Path>) -> Result<Self> {
-        let dir = model_dir.as_ref();
-        let (token_to_id, id_to_token) = Self::load_vocab(&dir.join("vocab.json"))?;
-        let merge_ranks = Self::load_merges(&dir.join("merges.txt"))?;
+        let path = model_dir.as_ref().join("tokenizer.json");
+        let doc = Self::read_json(&path)?;
+
+        let vocab = doc["model"]["vocab"]
+            .as_object()
+            .ok_or_else(|| TokenizerError::BadTokenizer {
+                path: path.clone(),
+                message: "missing `model.vocab` object".into(),
+            })?;
+        let (token_to_id, id_to_token) = Self::build_vocab(vocab, &path)?;
+
+        let merges = doc["model"]["merges"]
+            .as_array()
+            .ok_or_else(|| TokenizerError::BadTokenizer {
+                path: path.clone(),
+                message: "missing `model.merges` array".into(),
+            })?;
+        let merge_ranks = Self::build_merges(merges, &path)?;
+
+        // added_tokens is optional; absent → no special tokens.
+        let (special_tokens, special_ids) = match doc["added_tokens"].as_array() {
+            Some(added) => Self::build_special_tokens(added, &path)?,
+            None => (HashMap::new(), HashMap::new()),
+        };
 
         let byte_encoder = Self::build_byte_encoder();
         // byte_decoder is just the inverse map. build_byte_encoder is a bijection
@@ -209,7 +207,8 @@ impl Tokenizer {
             .map(|(b, &ch)| (ch, b as u8))
             .collect();
 
-        let regex = fancy_regex::Regex::new(PRETOKENIZE_PATTERN).map_err(TokenizerError::Regex)?;
+        let pattern = Self::extract_pattern(&doc, &path)?;
+        let regex = fancy_regex::Regex::new(&pattern).map_err(TokenizerError::Regex)?;
 
         Ok(Self {
             token_to_id,
@@ -217,52 +216,52 @@ impl Tokenizer {
             merge_ranks,
             byte_encoder,
             byte_decoder,
-            // Special tokens bypass BPE; our golden uses add_special_tokens=False
-            // with no special-token literals, so an empty map is correct for M0.
-            special_tokens: HashMap::new(),
+            special_tokens,
+            special_ids,
             regex,
         })
     }
 
-    /// Encode text into token IDs via byte-level BPE (stages 1→4).
-    ///
-    /// PSEUDO-CODE:
-    ///   let mut ids = vec![]
-    ///   // (phase 2, later) first carve out any special tokens verbatim.
-    ///   for chunk in self.pretokenize(text):                    // stage 1
-    ///       let mapped: String =
-    ///           chunk.bytes().map(|b| self.byte_encoder[b]).collect()  // stage 2
-    ///       ids.extend(self.bpe(&mapped))                        // stages 3+4
-    ///   ids
+    /// Encode text into token IDs.  Special-token literals are carved out first
+    /// (each → its id, bypassing BPE); every other run goes through the four
+    /// stages: pre-tokenize → bytes→unicode → merge → look up.
     pub fn encode(&self, text: &str) -> Result<Vec<u32>> {
         let mut ids = Vec::new();
-        for chunk in self.pretokenize(text)? {
-            // Stage 2: remap each raw byte to its byte-level-unicode char, so the
-            // chunk is in the same alphabet as the vocab/merge keys.
-            let mapped: String = chunk.bytes().map(|b| self.byte_encoder[b as usize]).collect();
-            // Stages 3+4: merge within this chunk, then look the pieces up.
-            ids.extend(self.bpe(&mapped)?);
+        for segment in self.split_on_special_tokens(text) {
+            match segment {
+                Segment::Special(id) => ids.push(id),
+                Segment::Normal(run) => {
+                    for chunk in self.pretokenize(run)? {
+                        // Stage 2: remap each raw byte to its byte-level-unicode
+                        // char, so the chunk is in the vocab/merge alphabet.
+                        let mapped: String =
+                            chunk.bytes().map(|b| self.byte_encoder[b as usize]).collect();
+                        // Stages 3+4: merge within this chunk, then look up.
+                        ids.extend(self.bpe(&mapped)?);
+                    }
+                }
+            }
         }
         Ok(ids)
     }
 
-    /// Decode token IDs back into a UTF-8 string (inverse of stages 4→2).
+    /// Decode token IDs back into a UTF-8 string. A special id decodes to its
+    /// literal text; an ordinary id is the inverse of stages 4→2 (piece → undo
+    /// the byte map → raw bytes).
     ///
-    /// PSEUDO-CODE:
-    ///   let mut bytes = vec![]
-    ///   for id in ids:
-    ///       let piece = &self.id_to_token[id]      // stage 4 inverse
-    ///       for ch in piece.chars():
-    ///           bytes.push(self.byte_decoder[ch])  // stage 2 inverse
-    ///   String::from_utf8_lossy(&bytes).into_owned()
-    ///
-    /// (`_lossy` because an arbitrary ID slice can split a multi-byte char;
-    /// for a faithful round-trip the bytes are always valid UTF-8.)
+    /// (`_lossy` because an arbitrary ID slice can split a multi-byte char; for
+    /// a faithful round-trip the bytes are always valid UTF-8.)
     pub fn decode(&self, ids: &[u32]) -> Result<String> {
         let mut bytes = Vec::new();
         for &id in ids {
-            // Stage 4 inverse: id → piece. Out-of-range ids (e.g. special tokens,
-            // which our id_to_token doesn't cover) are a typed error, not a panic.
+            // Special tokens carry their literal text (raw UTF-8), not a
+            // byte-level-unicode piece, so emit their bytes directly.
+            if let Some(content) = self.special_ids.get(&id) {
+                bytes.extend_from_slice(content.as_bytes());
+                continue;
+            }
+            // Stage 4 inverse: id → piece. An id past the vocab that isn't a
+            // known special is a typed error, not a panic.
             let piece = self
                 .id_to_token
                 .get(id as usize)
@@ -277,16 +276,53 @@ impl Tokenizer {
                 bytes.push(*byte);
             }
         }
-        // `_lossy` guards an arbitrary id slice that splits a multi-byte char; a
-        // faithful round-trip always yields valid UTF-8.
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     // ───────────────────────── private helpers ─────────────────────────
-    // These are the pieces we'll build and test one-by-one. Splitting them out
-    // means each gets its own small unit test against the golden data.
 
-    /// Stage 1. Split raw text into pre-token chunks per the Qwen regex.
+    /// Split text into special-token literals (resolved to ids) and the ordinary
+    /// runs between them. Special tokens match VERBATIM and take priority over
+    /// BPE; at each position we take the LONGEST matching special so a token that
+    /// is a prefix of another can't shadow it.
+    fn split_on_special_tokens<'a>(&self, text: &'a str) -> Vec<Segment<'a>> {
+        if self.special_tokens.is_empty() {
+            return vec![Segment::Normal(text)];
+        }
+
+        let mut out = Vec::new();
+        let mut normal_start = 0; // start of the current run of ordinary text
+        let mut i = 0;
+        while i < text.len() {
+            // Longest special token whose literal starts at byte position i.
+            let mut best: Option<(&str, u32)> = None;
+            for (content, &id) in &self.special_tokens {
+                if text[i..].starts_with(content.as_str())
+                    && best.is_none_or(|(b, _)| content.len() > b.len())
+                {
+                    best = Some((content.as_str(), id));
+                }
+            }
+            if let Some((content, id)) = best {
+                if normal_start < i {
+                    out.push(Segment::Normal(&text[normal_start..i]));
+                }
+                out.push(Segment::Special(id));
+                i += content.len();
+                normal_start = i;
+            } else {
+                // No special here; advance one whole char (keep byte indices on
+                // char boundaries so the `text[i..]` slicing above stays valid).
+                i += text[i..].chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        if normal_start < text.len() {
+            out.push(Segment::Normal(&text[normal_start..]));
+        }
+        out
+    }
+
+    /// Stage 1. Split an ordinary run into pre-token chunks per the Qwen regex.
     /// Returns borrowed slices into `text` (no copying).
     ///
     /// Example: " hello world" -> [" hello", " world"]   (spaces lead the word)
@@ -319,7 +355,7 @@ impl Tokenizer {
     ///           .min_by_key(|(r, _)| *r);
     ///       let Some((_, (l, r))) = best else { break };  // none mergeable → done
     ///       symbols = Self::merge_pair(symbols, &l, &r);  // glue every occurrence
-    ///   // ranks are line numbers, hence unique — no tie-break logic needed.
+    ///   // ranks are array indices, hence unique — no tie-break logic needed.
     ///   symbols.iter()
     ///       .map(|s| self.token_to_id.get(s).copied()
     ///                    .ok_or_else(|| TokenizerError::UnknownToken(s.clone())))
@@ -427,21 +463,36 @@ impl Tokenizer {
         encoder
     }
 
-    /// Parse `vocab.json` into the forward map and the dense reverse vector.
-    /// Returns (token_to_id, id_to_token).
-    fn load_vocab(path: &Path) -> Result<(HashMap<String, u32>, Vec<String>)> {
-        // `vocab.json` is one flat JSON object: { "<piece>": <id>, … }. We let
-        // serde_json do the parsing (not the tokenizer lesson) and deserialize
-        // straight into the forward map.
+    /// Read + parse a JSON file into a `serde_json::Value`. Parsing JSON is not
+    /// the tokenizer lesson, so we lean on serde_json.
+    fn read_json(path: &Path) -> Result<Value> {
         let bytes = std::fs::read(path).map_err(|source| TokenizerError::Io {
             path: path.into(),
             source,
         })?;
-        let token_to_id: HashMap<String, u32> =
-            serde_json::from_slice(&bytes).map_err(|source| TokenizerError::Json {
-                path: path.into(),
-                source,
-            })?;
+        serde_json::from_slice(&bytes).map_err(|source| TokenizerError::Json {
+            path: path.into(),
+            source,
+        })
+    }
+
+    /// Build the forward map and the dense reverse vector from `model.vocab`
+    /// (a JSON object of piece → id). Returns (token_to_id, id_to_token).
+    fn build_vocab(
+        vocab: &Map<String, Value>,
+        path: &Path,
+    ) -> Result<(HashMap<String, u32>, Vec<String>)> {
+        let mut token_to_id = HashMap::with_capacity(vocab.len());
+        for (token, id) in vocab {
+            let id = id
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!("vocab id for {token:?} is not a u32: {id}"),
+                })?;
+            token_to_id.insert(token.clone(), id);
+        }
 
         // Build the dense reverse map. Qwen's ids are exactly 0..vocab_size, so
         // a Vec indexed by id is the smallest and fastest inverse. We fill an
@@ -452,12 +503,12 @@ impl Tokenizer {
         for (token, &id) in &token_to_id {
             let slot = slots
                 .get_mut(id as usize)
-                .ok_or_else(|| TokenizerError::BadVocab {
+                .ok_or_else(|| TokenizerError::BadTokenizer {
                     path: path.into(),
                     message: format!("token {token:?} has id {id} >= vocab size {vocab_size}"),
                 })?;
             if slot.is_some() {
-                return Err(TokenizerError::BadVocab {
+                return Err(TokenizerError::BadTokenizer {
                     path: path.into(),
                     message: format!("id {id} is claimed by more than one token"),
                 });
@@ -469,7 +520,7 @@ impl Tokenizer {
             .into_iter()
             .enumerate()
             .map(|(id, slot)| {
-                slot.ok_or_else(|| TokenizerError::BadVocab {
+                slot.ok_or_else(|| TokenizerError::BadTokenizer {
                     path: path.into(),
                     message: format!("no token maps to id {id}; ids are not contiguous"),
                 })
@@ -479,47 +530,99 @@ impl Tokenizer {
         Ok((token_to_id, id_to_token))
     }
 
-    /// Parse `merges.txt` into `(left, right) -> rank`. Skip the `#version`
-    /// header; the rank is the (post-header) line index — earlier = higher
-    /// priority. Each line is exactly two space-separated pieces.
-    fn load_merges(path: &Path) -> Result<HashMap<(String, String), u32>> {
-        let text = std::fs::read_to_string(path).map_err(|source| TokenizerError::Io {
-            path: path.into(),
-            source,
-        })?;
-
-        // `rank` counts only real merge lines, so the first one is 0 regardless
-        // of the header/blank lines we skip. A piece can never contain a space
-        // (the space byte maps to 'Ġ'), so `split(' ')` is exact, not a guess.
-        let mut merge_ranks = HashMap::new();
-        let mut rank: u32 = 0;
-        for (lineno, line) in text.lines().enumerate() {
-            if line.is_empty() || line.starts_with("#version") {
-                continue;
-            }
-            let mut parts = line.split(' ');
-            let (Some(left), Some(right), None) = (parts.next(), parts.next(), parts.next()) else {
-                return Err(TokenizerError::BadMerges {
+    /// Build `(left, right) -> rank` from `model.merges`. The array is already in
+    /// priority order, so the rank is simply the index — earliest = highest
+    /// priority. No header to skip (unlike GPT-2's `merges.txt`).
+    fn build_merges(merges: &[Value], path: &Path) -> Result<HashMap<(String, String), u32>> {
+        let mut merge_ranks = HashMap::with_capacity(merges.len());
+        for (rank, entry) in merges.iter().enumerate() {
+            let (left, right) =
+                Self::merge_entry(entry).ok_or_else(|| TokenizerError::BadTokenizer {
                     path: path.into(),
-                    line: lineno + 1, // 1-based, to match an editor's gutter
-                    message: format!("expected exactly two space-separated pieces, got {line:?}"),
-                });
-            };
-            merge_ranks.insert((left.to_string(), right.to_string()), rank);
-            rank += 1;
+                    message: format!("merge #{rank} is not a [left, right] pair: {entry}"),
+                })?;
+            merge_ranks.insert((left.to_string(), right.to_string()), rank as u32);
         }
         Ok(merge_ranks)
+    }
+
+    /// A merges entry is `["left", "right"]` (modern `tokenizer.json`) or the
+    /// legacy space-joined `"left right"` string. Accept both, for robustness
+    /// across model formats. A piece never contains a space (the space byte maps
+    /// to 'Ġ'), so the legacy `split_once(' ')` is exact, not a guess.
+    fn merge_entry(entry: &Value) -> Option<(&str, &str)> {
+        match entry {
+            Value::Array(pair) if pair.len() == 2 => Some((pair[0].as_str()?, pair[1].as_str()?)),
+            Value::String(line) => line.split_once(' '),
+            _ => None,
+        }
+    }
+
+    /// Build the special-token maps (content → id and id → content) from
+    /// `added_tokens`. These match verbatim and bypass BPE.
+    fn build_special_tokens(
+        added: &[Value],
+        path: &Path,
+    ) -> Result<(HashMap<String, u32>, HashMap<u32, String>)> {
+        let mut by_content = HashMap::with_capacity(added.len());
+        let mut by_id = HashMap::with_capacity(added.len());
+        for entry in added {
+            let content =
+                entry["content"]
+                    .as_str()
+                    .ok_or_else(|| TokenizerError::BadTokenizer {
+                        path: path.into(),
+                        message: format!("added token has no string `content`: {entry}"),
+                    })?;
+            let id = entry["id"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!("added token {content:?} has a non-u32 `id`"),
+                })?;
+            by_content.insert(content.to_string(), id);
+            by_id.insert(id, content.to_string());
+        }
+        Ok((by_content, by_id))
+    }
+
+    /// Pull the stage-1 split pattern out of `pre_tokenizer`. It's normally a
+    /// Sequence of sub-tokenizers (a Split with the Regex, then ByteLevel), but
+    /// we also handle a single node — we just take the first Regex we find.
+    fn extract_pattern(doc: &Value, path: &Path) -> Result<String> {
+        let pt = &doc["pre_tokenizer"];
+        let nodes: &[Value] = match pt["pretokenizers"].as_array() {
+            Some(arr) => arr.as_slice(),
+            None => std::slice::from_ref(pt),
+        };
+        for node in nodes {
+            if let Some(pattern) = node["pattern"]["Regex"].as_str() {
+                return Ok(pattern.to_string());
+            }
+        }
+        Err(TokenizerError::BadTokenizer {
+            path: path.into(),
+            message: "no pre_tokenizer Regex pattern found".into(),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
-    use std::path::PathBuf;
+    use serde_json::json;
+    use std::collections::HashSet;
 
-    /// Build a Tokenizer from tiny in-memory tables, for exercising `bpe` without
-    /// loading the real assets. Only the fields `bpe` touches need real content.
+    /// Qwen3's exact pre-tokenization pattern — a verbatim copy of what
+    /// `tokenizer.json` carries, used to drive the unit tests below. (`load`
+    /// reads the live pattern from the file; this is just a fixed reference so
+    /// the `pretokenize` tests don't need the model assets.)
+    const PRETOKENIZE_PATTERN: &str =
+        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+
+    /// Build a Tokenizer from tiny in-memory tables, for exercising `bpe` /
+    /// `pretokenize` / special-token carving without loading the real assets.
     fn mini_tokenizer(vocab: &[(&str, u32)], merges: &[((&str, &str), u32)]) -> Tokenizer {
         Tokenizer {
             token_to_id: vocab.iter().map(|(t, id)| (t.to_string(), *id)).collect(),
@@ -531,16 +634,9 @@ mod tests {
             byte_encoder: Tokenizer::build_byte_encoder(),
             byte_decoder: HashMap::new(),
             special_tokens: HashMap::new(),
+            special_ids: HashMap::new(),
             regex: fancy_regex::Regex::new(PRETOKENIZE_PATTERN).expect("valid pattern"),
         }
-    }
-
-    /// Write a small fixture to a uniquely-named temp file (the real assets live
-    /// in the git-ignored `models/`, so unit tests use their own tiny inputs).
-    fn write_temp(name: &str, contents: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("fs-tok-test-{name}"));
-        std::fs::write(&path, contents).expect("write temp fixture");
-        path
     }
 
     #[test]
@@ -553,7 +649,7 @@ mod tests {
         assert_eq!(enc[b'~' as usize], '~');
         assert_eq!(enc[0xFF], '\u{00FF}'); // 'ÿ', top of the high printable range
 
-        // The famous remaps that show up in vocab.json keys.
+        // The famous remaps that show up in vocab keys.
         assert_eq!(enc[0x20], '\u{0120}'); // space   -> 'Ġ'
         assert_eq!(enc[0x0A], '\u{010A}'); // newline -> 'Ċ'
 
@@ -571,46 +667,66 @@ mod tests {
     }
 
     #[test]
-    fn load_vocab_builds_dense_reverse_map() {
-        let path = write_temp("vocab.json", r#"{"a":0,"b":1,"Ġc":2}"#);
-        let (fwd, rev) = Tokenizer::load_vocab(&path).unwrap();
+    fn build_vocab_builds_dense_reverse_map() {
+        let vocab = json!({ "a": 0, "b": 1, "Ġc": 2 });
+        let (fwd, rev) =
+            Tokenizer::build_vocab(vocab.as_object().unwrap(), Path::new("x")).unwrap();
         assert_eq!(fwd["a"], 0);
         assert_eq!(fwd["Ġc"], 2);
         // reverse map is indexed by id, so order == id order
         assert_eq!(rev, vec!["a".to_string(), "b".to_string(), "Ġc".to_string()]);
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
-    fn load_vocab_rejects_an_out_of_range_id() {
-        let path = write_temp("vocab-bad.json", r#"{"a":0,"b":2}"#); // len 2, but id 2
+    fn build_vocab_rejects_an_out_of_range_id() {
+        let vocab = json!({ "a": 0, "b": 2 }); // len 2, but id 2
         assert!(matches!(
-            Tokenizer::load_vocab(&path),
-            Err(TokenizerError::BadVocab { .. })
+            Tokenizer::build_vocab(vocab.as_object().unwrap(), Path::new("x")),
+            Err(TokenizerError::BadTokenizer { .. })
         ));
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
-    fn load_merges_ranks_from_zero_skipping_header() {
-        let path = write_temp("merges.txt", "#version: 0.2\nĠ Ġ\ni n\nĠ t\n");
-        let merges = Tokenizer::load_merges(&path).unwrap();
-        // first real merge is rank 0, not rank 1 — the off-by-one we care about
-        assert_eq!(merges[&("Ġ".to_string(), "Ġ".to_string())], 0);
-        assert_eq!(merges[&("i".to_string(), "n".to_string())], 1);
-        assert_eq!(merges[&("Ġ".to_string(), "t".to_string())], 2);
-        assert_eq!(merges.len(), 3); // header + trailing blank both skipped
-        std::fs::remove_file(&path).ok();
+    fn build_merges_ranks_from_zero() {
+        // Modern array form, in priority order: rank is the index.
+        let merges = json!([["Ġ", "Ġ"], ["i", "n"], ["Ġ", "t"]]);
+        let m = Tokenizer::build_merges(merges.as_array().unwrap(), Path::new("x")).unwrap();
+        assert_eq!(m[&("Ġ".to_string(), "Ġ".to_string())], 0);
+        assert_eq!(m[&("i".to_string(), "n".to_string())], 1);
+        assert_eq!(m[&("Ġ".to_string(), "t".to_string())], 2);
+        assert_eq!(m.len(), 3);
     }
 
     #[test]
-    fn load_merges_rejects_a_malformed_line() {
-        let path = write_temp("merges-bad.txt", "#version: 0.2\na b c\n");
+    fn build_merges_accepts_legacy_string_form() {
+        // Older tokenizer.json files store each merge as "left right".
+        let merges = json!(["a b", "c d"]);
+        let m = Tokenizer::build_merges(merges.as_array().unwrap(), Path::new("x")).unwrap();
+        assert_eq!(m[&("a".to_string(), "b".to_string())], 0);
+        assert_eq!(m[&("c".to_string(), "d".to_string())], 1);
+    }
+
+    #[test]
+    fn build_merges_rejects_a_malformed_entry() {
+        let merges = json!([["only-one-element"]]);
         assert!(matches!(
-            Tokenizer::load_merges(&path),
-            Err(TokenizerError::BadMerges { .. })
+            Tokenizer::build_merges(merges.as_array().unwrap(), Path::new("x")),
+            Err(TokenizerError::BadTokenizer { .. })
         ));
-        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn extract_pattern_finds_regex_in_sequence() {
+        let doc = json!({
+            "pre_tokenizer": {
+                "type": "Sequence",
+                "pretokenizers": [
+                    { "type": "Split", "pattern": { "Regex": "ABC" } },
+                    { "type": "ByteLevel" }
+                ]
+            }
+        });
+        assert_eq!(Tokenizer::extract_pattern(&doc, Path::new("x")).unwrap(), "ABC");
     }
 
     #[test]
@@ -667,10 +783,7 @@ mod tests {
     fn bpe_errors_on_a_piece_outside_the_vocab() {
         // 'z' never merges and isn't in the vocab → typed UnknownToken, no panic.
         let tok = mini_tokenizer(&[("a", 0)], &[]);
-        assert!(matches!(
-            tok.bpe("z"),
-            Err(TokenizerError::UnknownToken(_))
-        ));
+        assert!(matches!(tok.bpe("z"), Err(TokenizerError::UnknownToken(_))));
     }
 
     #[test]
@@ -702,5 +815,44 @@ mod tests {
         for s in ["hello world", " leading", "trailing ", "a\n\nb", "café 🚀"] {
             assert_eq!(tok.pretokenize(s).unwrap().concat(), s);
         }
+    }
+
+    #[test]
+    fn special_tokens_are_carved_out_and_decoded() {
+        // A mini tokenizer that can BPE "hello" (-> 7), plus a special token.
+        let mut tok = mini_tokenizer(
+            &[
+                ("h", 0),
+                ("e", 1),
+                ("l", 2),
+                ("o", 3),
+                ("el", 4),
+                ("lo", 5),
+                ("ello", 6),
+                ("hello", 7),
+            ],
+            &[
+                (("e", "l"), 0),
+                (("l", "o"), 1),
+                (("el", "lo"), 2),
+                (("h", "ello"), 3),
+            ],
+        );
+        tok.special_tokens.insert("<|s|>".to_string(), 100);
+        tok.special_ids.insert(100, "<|s|>".to_string());
+
+        // encode: the special literal becomes its id, bypassing BPE; the rest
+        // ("hello") is BPE'd normally to [7].
+        assert_eq!(tok.encode("<|s|>hello").unwrap(), vec![100, 7]);
+        assert_eq!(tok.encode("hello<|s|>").unwrap(), vec![7, 100]);
+        // decode: a special id returns its literal text.
+        assert_eq!(tok.decode(&[100]).unwrap(), "<|s|>");
+    }
+
+    #[test]
+    fn no_special_tokens_means_one_normal_segment() {
+        // With an empty special map, encode just runs the normal pipeline.
+        let tok = mini_tokenizer(&[("a", 0)], &[]);
+        assert_eq!(tok.encode("a").unwrap(), vec![0]);
     }
 }

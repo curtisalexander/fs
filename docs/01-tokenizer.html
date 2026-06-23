@@ -49,9 +49,10 @@
       back — using Qwen3-0.6B’s <em>own</em> byte-level BPE vocabulary, so our IDs match
       the official tokenizer exactly. No GPU, no weights; pure Rust.</p>
     <div class="callout">
-      <strong>Status: ✅ core done.</strong> All 14 golden cases reproduce the official
-      Qwen IDs, decode back, and round-trip; 13 unit tests + 1 integration test, no
-      warnings. Special-token carving is deferred to a phase-2 follow-up.
+      <strong>Status: ✅ done.</strong> All 14 golden cases reproduce the official
+      Qwen IDs, decode back, and round-trip; special tokens are supported; 17 unit
+      tests + 2 integration tests, no warnings. Everything loads from the single
+      <code>tokenizer.json</code>.
     </div>
     <pre><code>$ fs tokenize "hello world"     →  14990 1879
 $ fs detokenize 14990 1879      →  hello world</code></pre>
@@ -74,7 +75,7 @@ $ fs detokenize 14990 1879      →  hello world</code></pre>
       boundary. (That nesting is the thing most people get backwards.)</p>
     <div class="pipeline">
       <div class="stage"><span class="mstone">1</span><span class="step">pretokenize</span>
-        <h4>Text → word chunks</h4><p>A fixed regex (copied verbatim from Qwen’s
+        <h4>Text → word chunks</h4><p>A fixed regex (read from Qwen’s
         <code>tokenizer.json</code>) splits the text. A leading space stays attached:
         <code>"hello world"</code> → <code>["hello", " world"]</code>.</p></div>
       <div class="stage"><span class="mstone">2</span><span class="step">build_byte_encoder</span>
@@ -89,9 +90,12 @@ $ fs detokenize 14990 1879      →  hello world</code></pre>
         <h4>Pieces → IDs</h4><p>Each surviving piece is a vocab key → its integer ID.
         Concatenate across all chunks for the final sequence.</p></div>
     </div>
+    <p class="prose">Before stage 1, any <strong>special-token literal</strong>
+      (<code>&lt;|im_start|&gt;</code> …) is carved out and emitted as its id directly,
+      bypassing BPE — see <code>split_on_special_tokens</code>.</p>
     <p class="prose"><strong>Decoding reverses 4→2:</strong> ID → piece → concatenate →
-      undo the byte map → raw UTF-8. No regex, no merging — the merges are already baked
-      into the pieces.</p>
+      undo the byte map → raw UTF-8 (a special id decodes straight to its literal text).
+      No regex, no merging — the merges are already baked into the pieces.</p>
   </div>
 </section>
 
@@ -102,7 +106,8 @@ $ fs detokenize 14990 1879      →  hello world</code></pre>
     <h2>“hello” → 14990</h2>
     <p class="prose">One chunk, all printable ASCII, so its byte-level form is just
       <code>hello</code>. Each pass applies the lowest-rank merge present
-      (<code>#N</code> = the real rank from Qwen’s <code>merges.txt</code>):</p>
+      (<code>#N</code> = the real rank from Qwen’s merge list, <code>model.merges</code>
+      in <code>tokenizer.json</code>):</p>
     <div class="table-wrap">
       <table>
         <thead><tr><th>pass</th><th>symbols</th><th>candidate pairs (rank)</th><th>winner</th></tr></thead>
@@ -145,14 +150,15 @@ $ fs detokenize 14990 1879      →  hello world</code></pre>
       <div class="card">
         <h3>Each digit is its own chunk</h3>
         <p>Qwen’s pattern uses <code>\p{N}</code>, not <code>\p{N}+</code>, so
-          <code>"123"</code> → <code>["1","2","3"]</code>. We copy the pattern verbatim
-          rather than retype GPT-4’s <code>{1,3}</code> variant.</p>
+          <code>"123"</code> → <code>["1","2","3"]</code>. We read the pattern straight
+          from <code>tokenizer.json</code> rather than retype GPT-4’s <code>{1,3}</code>.</p>
       </div>
       <div class="card">
-        <h3>Rank is off-by-one bait</h3>
-        <p>The first merge line is rank <strong>0</strong>; the <code>#version</code>
-          header is skipped without consuming a rank. A wrong base would silently corrupt
-          <em>every</em> tokenization.</p>
+        <h3>Merge order is everything</h3>
+        <p><code>model.merges</code> is already in priority order, so rank = array index
+          (first pair = rank 0). A wrong base would silently corrupt <em>every</em>
+          tokenization. (The old <code>merges.txt</code> had a header to skip — an
+          off-by-one trap the array sidesteps.)</p>
       </div>
       <div class="card">
         <h3>Merge non-overlapping</h3>
@@ -182,16 +188,18 @@ $ fs detokenize 14990 1879      →  hello world</code></pre>
     </ul>
     <p>Exact-ID parity across a diverse set — ASCII, CJK, emoji, code with tabs/newlines,
       digit runs — <em>is</em> the definition of “works with this model”: it proves the
-      byte map, the regex, and the merge order are all correct at once. The test skips
-      gracefully if the (git-ignored) model assets aren’t fetched, so a fresh checkout
-      stays green.</p>
+      byte map, the regex, and the merge order are all correct at once. A second
+      integration test covers special tokens (<code>&lt;|im_start|&gt;</code> →
+      <code>151644</code>, carving, round-trip). Both skip gracefully if the (git-ignored)
+      model assets aren’t fetched, so a fresh checkout stays green.</p>
     <div class="callout">
-      <strong>Stubbed &amp; deferred.</strong> <strong>Special tokens</strong>
-      (<code>&lt;|im_start|&gt;</code>, …) are an empty stub — they bypass BPE and the
-      golden never uses them; real carving is the M0 follow-up for chat templates. And
-      <code>bpe</code>’s O(n²)-per-word loop is fine for now (the regex bounds word size);
-      a <strong>HashMap memoization</strong> of <code>bpe(word)</code> is a recorded later
-      optimization.
+      <strong>Special tokens are supported</strong> (no longer stubbed): loaded from
+      <code>tokenizer.json</code>’s <code>added_tokens</code>, carved out in
+      <code>encode</code>, decoded back in <code>decode</code>. What’s <em>deferred</em>:
+      the <strong>chat template</strong> (wrapping turns in
+      <code>&lt;|im_start|&gt;</code>/<code>&lt;|im_end|&gt;</code>) is an M3 concern; and
+      <code>bpe</code>’s O(n²)-per-word loop awaits a <strong>HashMap memoization</strong>
+      of <code>bpe(word)</code> as a recorded later optimization.
     </div>
     <div class="cites">
       <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.2 (p.46)</span>

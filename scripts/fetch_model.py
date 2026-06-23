@@ -26,11 +26,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEST = REPO_ROOT / "models" / "qwen3-0.6b"
 
 # Small text/JSON the tokenizer (M0) needs, plus configs we reuse from M1 on.
+# We parse tokenizer.json directly (it carries vocab + merges + the pre-tokenizer
+# regex + special tokens), so the separate GPT-2 vocab.json/merges.txt are no
+# longer fetched — tokenizer.json supersedes them.
 TOKENIZER_FILES = [
-    "tokenizer.json",          # all-in-one HF fast tokenizer (vocab+merges+rules)
-    "vocab.json",              # token -> id map (GPT-2 byte-level form)
-    "merges.txt",              # BPE merge rules, in priority order
-    "tokenizer_config.json",   # special-token wiring + chat template
+    "tokenizer.json",          # all-in-one HF fast tokenizer (vocab+merges+rules+specials)
+    "tokenizer_config.json",   # special-token wiring + chat template (used from M3)
     "config.json",             # vocab_size (151936) and architecture dims
     "generation_config.json",  # sampling defaults (used at M3)
 ]

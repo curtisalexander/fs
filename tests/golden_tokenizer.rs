@@ -14,9 +14,13 @@ use fs::tokenizer::Tokenizer;
 const MODEL_DIR: &str = "models/qwen3-0.6b";
 const GOLDEN: &str = include_str!("golden/tokenizer.json");
 
+fn model_present() -> bool {
+    Path::new(MODEL_DIR).join("tokenizer.json").exists()
+}
+
 #[test]
 fn reproduces_official_ids_on_golden_cases() {
-    if !Path::new(MODEL_DIR).join("vocab.json").exists() {
+    if !model_present() {
         eprintln!("SKIP: {MODEL_DIR} not found — run `uv run --directory scripts fetch_model.py`");
         return;
     }
@@ -65,4 +69,29 @@ fn reproduces_official_ids_on_golden_cases() {
         cases.len(),
         failures.join("\n")
     );
+}
+
+/// Special tokens come from `tokenizer.json`'s `added_tokens` (ids 151643+).
+/// They match verbatim, bypass BPE, and decode back to their literal text.
+#[test]
+fn handles_special_tokens() {
+    if !model_present() {
+        eprintln!("SKIP: {MODEL_DIR} not found — run `uv run --directory scripts fetch_model.py`");
+        return;
+    }
+    let tok = Tokenizer::load(MODEL_DIR).expect("load tokenizer");
+
+    // Known ids from Qwen3-0.6B's added_tokens.
+    assert_eq!(tok.encode("<|im_start|>").unwrap(), vec![151644]);
+    assert_eq!(tok.encode("<|endoftext|>").unwrap(), vec![151643]);
+    assert_eq!(tok.decode(&[151644]).unwrap(), "<|im_start|>");
+
+    // Carving: the special literal is split out; the surrounding text is BPE'd
+    // exactly as it would be on its own ("hello world" -> [14990, 1879]).
+    let ids = tok.encode("<|im_start|>hello world").unwrap();
+    assert_eq!(ids, vec![151644, 14990, 1879]);
+
+    // Full round-trip through interleaved special + ordinary text.
+    let s = "<|im_start|>hello world<|im_end|>";
+    assert_eq!(tok.decode(&tok.encode(s).unwrap()).unwrap(), s);
 }
