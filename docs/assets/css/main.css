@@ -82,6 +82,10 @@ h3 { font-size: 1.25rem; margin: 2em 0 0.4em; color: var(--ember-hi); }
 p { margin: 0 0 1rem; }
 code { font-family: var(--mono); font-size: 0.88em; background: var(--surface-2);
   border: 1px solid var(--border); border-radius: 5px; padding: 0.08em 0.38em; }
+pre { font-family: var(--mono); font-size: 0.85rem; line-height: 1.5;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.9rem 1.1rem; margin: 0 0 1rem; overflow-x: auto; color: var(--text-dim); }
+pre code { background: none; border: 0; padding: 0; font-size: 1em; }
 strong { color: var(--text-strong); font-weight: 650; }
 mark { background: rgba(232,160,75,0.22); color: var(--ember-hi); border-radius: 3px;
   padding: 0 0.2em; }

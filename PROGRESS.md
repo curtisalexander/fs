@@ -4,9 +4,81 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M0 — Tokenizer (in progress: setup aligned; BPE not yet implemented)
-**Engine status:** Rust scaffolding compiles (`cargo build` ✓); `src/tokenizer.rs` is an annotated sketch (`todo!()` bodies) with custom tokenizer errors. `fancy-regex` added for exact Qwen pre-tokenization; `serde_json` added for tokenizer JSON assets. Idempotent uv data pipeline live; golden vectors generated.
+**Current milestone:** M0 — Tokenizer (✅ core complete: all four stages implemented, **14/14 golden cases pass**, CLI runs; special-token carving deferred). Next up: **M1 — load the weights**.
+**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B's real vocab. Full byte-level BPE lives in `src/tokenizer.rs` (`build_byte_encoder`, `load_vocab`/`load_merges`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, and the wired `load`/`encode`/`decode`). 13 unit tests + 1 golden integration test green, no warnings. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 6 — 2026-06-23 — M0 implemented end-to-end; golden passes
+
+**Did:** built the whole tokenizer, bottom-up, one helper at a time (each unit-tested),
+then wired and verified it against the real model.
+- `build_byte_encoder` — GPT-2 byte→unicode bijection (188 identity + 68 spares from
+  `U+0100`). Tested: landmarks (`space→Ġ`, `newline→Ċ`, the `0x7F` gap) + bijection.
+- `load_vocab` / `load_merges` — serde_json for vocab → forward map + dense
+  id-indexed reverse `Vec` (names the exact defect on a bad vocab); merges → ranks,
+  first real merge = rank 0. Tested incl. the rank off-by-one and malformed lines.
+- `bpe` + `adjacent_pairs` + `merge_pair` — global-min-rank merge loop; `merge_pair`
+  is non-overlapping. `bpe_reproduces_the_hello_trace` runs the `"hello"`→14990 trace
+  from Session 5 as an executable test.
+- `pretokenize` — Qwen's exact pattern copied verbatim from `tokenizer.json` into
+  `PRETOKENIZE_PATTERN` (raw string), via `fancy-regex`. Tests grounded against the
+  official pre-tokenizer's output; one asserts chunks tile the whole input.
+- Wired `load` / `encode` / `decode`; added `tests/golden_tokenizer.rs` (encode = official
+  IDs, decode = official text, round-trip) over all 14 cases. **All pass.** CLI verified
+  on `hello world`, the France sentence, and the emoji case. No build warnings.
+- Wrote [`docs/01-tokenizer.md`](docs/01-tokenizer.md) — the milestone writeup (pipeline,
+  data, the `hello` trace, gotchas, verification), cross-linked to the book / `ds4` /
+  Raschka and to [`learnings/03-bpe.md`](docs/learnings/03-bpe.md).
+
+**Decisions / notes resolved this session:**
+- **Special tokens:** stubbed as an empty map for M0 (`#[allow(dead_code)]`, "phase 2"
+  note). Golden uses `add_special_tokens=False` with no special-token literals, so the
+  empty stub is correct. Real carving is the natural M0 follow-up (chat templates). ✅
+- **Golden integration test** skips with a notice when `models/` is absent, so
+  `cargo test` is green on a fresh checkout but validates fully once assets are fetched. ✅
+- **`decode` lossy:** `String::from_utf8_lossy` (an arbitrary id slice can split a
+  multi-byte char); a faithful round-trip is always valid UTF-8 anyway. ✅
+- ⏳ **Still deferred:** the `bpe` HashMap memoization (see Session 5 + the `bpe` doc).
+
+**Possible next steps (M0 wrap / M1 start):**
+1. (optional) Implement special-token carving + a chat-template encode path.
+2. (optional) Distill `docs/01-tokenizer.md` into the HTML site + update the sync ledger.
+3. **M1 — load the weights:** parse safetensors + `config.json`; `fs inspect model/`.
+
+---
+
+## Session 5 — 2026-06-23 — `bpe` algorithm walkthrough + locked design
+
+**Did:**
+- Walked the `bpe` pseudo-code together before writing it. Grounded it in a real
+  trace of `"hello"` against Qwen's actual `merges.txt` (ranks = line − 2):
+  `[h,e,l,l,o] →(e,l)#45→ [h,el,l,o] →(l,o)#129→ [h,el,lo] →(el,lo)#4535→
+  [h,ello] →(h,ello)#14734→ [hello] → id 14990`. The lesson: pick the
+  global-min rank each pass (the first merge is in the *middle*, not at `(h,e)`),
+  and a high-priority pair can be permanently starved once its members merge.
+- Updated `src/tokenizer.rs`: rewrote the `bpe` doc/pseudo-code to the locked
+  design and added two private helper sketches, `adjacent_pairs` + `merge_pair`.
+  `cargo build` ✓.
+
+**Decisions resolved this session (the `bpe` design):**
+- **Final lookup:** `token_to_id.get(s).ok_or(UnknownToken)`, not the panicking
+  `token_to_id[s]` index — turn the "impossible" miss into a typed error. ✅
+- **Ties:** none possible (ranks are unique line numbers), so no defensive
+  tie-break logic. ✅
+- **Structure:** `adjacent_pairs` and `merge_pair` are private helpers (testable);
+  `merge_pair` consumes pairs non-overlapping left→right, so `[a,a,a]` + `(a,a)`
+  → `[aa,a]`. ✅
+- **Performance:** keep the naive O(n²)-per-chunk loop for M0 (pretokenize bounds
+  n to one word). ⏳ **DEFERRED OPTIMIZATION:** memoize `bpe(word)` in a HashMap
+  (GPT-2-style) in a later pass — recorded here + in the `bpe` doc comment. ✅
+- **Docs:** the `"hello"`→14990 trace is the canonical worked example for
+  `docs/01-tokenizer.md`. ✅
+
+**Next:** implement in PROGRESS order — `build_byte_encoder`, then
+`load_vocab`/`load_merges`, then `bpe` (now fully specced) with `adjacent_pairs`/
+`merge_pair`, then `pretokenize`, then wire `encode`/`decode` + the golden test.
 
 ---
 

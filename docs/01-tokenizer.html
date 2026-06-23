@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>M0 — Tokenizer — Failed Star</title>
+<meta name="description" content="How Failed Star turns text into token IDs and back: byte-level BPE against Qwen3-0.6B's own vocabulary, verified to match the official tokenizer exactly.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/01-tokenizer.md">
+
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="./index.html">Home</a>
+      <a href="./prerequisites.html">Prerequisites</a>
+      <a href="./diagrams.html">Diagrams</a>
+      <a href="./01-tokenizer.html" class="current" aria-current="page">Milestones</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Milestone M0 · the model’s front door</p>
+    <h2>Tokenizer: text ↔ token IDs</h2>
+    <p class="lead">The first thing every prompt hits and the last thing every reply
+      passes through. M0 turns a string into the integer IDs the model consumes — and
+      back — using Qwen3-0.6B’s <em>own</em> byte-level BPE vocabulary, so our IDs match
+      the official tokenizer exactly. No GPU, no weights; pure Rust.</p>
+    <div class="callout">
+      <strong>Status: ✅ core done.</strong> All 14 golden cases reproduce the official
+      Qwen IDs, decode back, and round-trip; 13 unit tests + 1 integration test, no
+      warnings. Special-token carving is deferred to a phase-2 follow-up.
+    </div>
+    <pre><code>$ fs tokenize "hello world"     →  14990 1879
+$ fs detokenize 14990 1879      →  hello world</code></pre>
+    <p>For <em>why</em> BPE works this way — the merges are learned once by the model
+      creators, and we only ever replay them — read
+      <a href="./learnings/03-bpe.md">learning 03 · byte-pair encoding</a> first. This
+      page is <strong>what we built</strong>.</p>
+  </div>
+</section>
+
+<!-- ============================== PIPELINE ============================== -->
+<section id="pipeline">
+  <div class="container">
+    <p class="eyebrow">Encoding, stage by stage</p>
+    <h2>Four stages — and they’re nested</h2>
+    <p class="prose">The key structural fact: a <strong>coarse</strong> split into words,
+      and <em>within each word</em>, a <strong>fine</strong> split into bytes that BPE
+      merges back up. <code>pretokenize</code> cuts the sentence into words;
+      <code>bpe</code> runs on <em>one word at a time</em>, and merges never cross a word
+      boundary. (That nesting is the thing most people get backwards.)</p>
+    <div class="pipeline">
+      <div class="stage"><span class="mstone">1</span><span class="step">pretokenize</span>
+        <h4>Text → word chunks</h4><p>A fixed regex (copied verbatim from Qwen’s
+        <code>tokenizer.json</code>) splits the text. A leading space stays attached:
+        <code>"hello world"</code> → <code>["hello", " world"]</code>.</p></div>
+      <div class="stage"><span class="mstone">2</span><span class="step">build_byte_encoder</span>
+        <h4>Bytes → printable chars</h4><p>Each raw byte is remapped to a printable
+        Unicode char so a token never holds a literal space/newline. <code>0x20</code> →
+        <code>Ġ</code>. The map is a bijection over all 256 bytes.</p></div>
+      <div class="stage"><span class="mstone">3</span><span class="step">bpe</span>
+        <h4>Merge by rank</h4><p>Explode the chunk to single chars, then repeatedly glue
+        the adjacent pair with the <em>lowest merge rank</em> until none apply. The
+        survivors are the tokens.</p></div>
+      <div class="stage"><span class="mstone">4</span><span class="step">token_to_id</span>
+        <h4>Pieces → IDs</h4><p>Each surviving piece is a vocab key → its integer ID.
+        Concatenate across all chunks for the final sequence.</p></div>
+    </div>
+    <p class="prose"><strong>Decoding reverses 4→2:</strong> ID → piece → concatenate →
+      undo the byte map → raw UTF-8. No regex, no merging — the merges are already baked
+      into the pieces.</p>
+  </div>
+</section>
+
+<!-- ============================== WORKED TRACE ============================== -->
+<section id="trace">
+  <div class="container">
+    <p class="eyebrow">The canonical example</p>
+    <h2>“hello” → 14990</h2>
+    <p class="prose">One chunk, all printable ASCII, so its byte-level form is just
+      <code>hello</code>. Each pass applies the lowest-rank merge present
+      (<code>#N</code> = the real rank from Qwen’s <code>merges.txt</code>):</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>pass</th><th>symbols</th><th>candidate pairs (rank)</th><th>winner</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><code>h e l l o</code></td><td>(h,e)=127, <strong>(e,l)=45</strong>, (l,l)=398, (l,o)=129</td><td>(e,l)</td></tr>
+          <tr><td>2</td><td><code>h el l o</code></td><td>(h,el)=48866, (el,l)=357, <strong>(l,o)=129</strong></td><td>(l,o)</td></tr>
+          <tr><td>3</td><td><code>h el lo</code></td><td>(h,el)=48866, <strong>(el,lo)=4535</strong></td><td>(el,lo)</td></tr>
+          <tr><td>4</td><td><code>h ello</code></td><td><strong>(h,ello)=14734</strong></td><td>(h,ello)</td></tr>
+          <tr><td>5</td><td><code>hello</code></td><td>none</td><td>— stop</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout prose">
+      <strong>Two lessons a toy trace hides.</strong>
+      <strong>(1)</strong> The first merge is in the <em>middle</em> (<code>e+l</code>),
+      not at the front — even though <code>(h,e)</code> was a valid merge sitting right
+      there. Rank 45 beats rank 127, so left-to-right greedy would be wrong; we must pick
+      the global-minimum rank.
+      <strong>(2)</strong> <code>(h,e)</code> then <em>never</em> fires: once <code>e</code>
+      is absorbed into <code>el</code>, <code>h</code> waits and merges with the whole
+      <code>ello</code>. A high-priority pair can be permanently <em>starved</em> — and
+      that is BPE behaving correctly. (Pinned as the test
+      <code>bpe_reproduces_the_hello_trace</code>.)
+    </div>
+  </div>
+</section>
+
+<!-- ============================== GOTCHAS ============================== -->
+<section id="gotchas">
+  <div class="container">
+    <p class="eyebrow">Where it gets subtle</p>
+    <h2>Gotchas we hit</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Leading spaces are load-bearing</h3>
+        <p><code>"hello world"</code> → <code>[14990, 1879]</code> but
+          <code>" hello world"</code> → <code>[23811, 1879]</code> — a different first
+          token. If the byte map or regex is wrong, this breaks first.</p>
+      </div>
+      <div class="card">
+        <h3>Each digit is its own chunk</h3>
+        <p>Qwen’s pattern uses <code>\p{N}</code>, not <code>\p{N}+</code>, so
+          <code>"123"</code> → <code>["1","2","3"]</code>. We copy the pattern verbatim
+          rather than retype GPT-4’s <code>{1,3}</code> variant.</p>
+      </div>
+      <div class="card">
+        <h3>Rank is off-by-one bait</h3>
+        <p>The first merge line is rank <strong>0</strong>; the <code>#version</code>
+          header is skipped without consuming a rank. A wrong base would silently corrupt
+          <em>every</em> tokenization.</p>
+      </div>
+      <div class="card">
+        <h3>Merge non-overlapping</h3>
+        <p>Merging <code>(a,a)</code> over <code>[a,a,a]</code> yields <code>[aa,a]</code>,
+          not a reused middle <code>a</code> — we consume both halves on a hit.</p>
+      </div>
+    </div>
+    <p class="prose" style="margin-top:1.2rem">Lookups return <strong>typed errors,
+      never panics</strong>: a piece outside the vocab → <code>UnknownToken</code>
+      (theoretically impossible, but surfaced not crashed); an out-of-range id in
+      <code>decode</code> → <code>InvalidTokenId</code>.</p>
+  </div>
+</section>
+
+<!-- ============================== VERIFY ============================== -->
+<section id="verify">
+  <div class="container prose">
+    <p class="eyebrow">The milestone’s “done” gate</p>
+    <h2>How we know it’s right</h2>
+    <p>The fixture <code>tests/golden/tokenizer.json</code> is generated by the
+      <strong>official</strong> Hugging Face tokenizer (a one-shot oracle), then committed.
+      <code>tests/golden_tokenizer.rs</code> asserts, for all 14 cases:</p>
+    <ul class="checklist">
+      <li><code>encode(text)</code> equals the official IDs,</li>
+      <li><code>decode(official_ids)</code> equals the official text,</li>
+      <li>round-trip <code>decode(encode(text))</code> equals <code>text</code>.</li>
+    </ul>
+    <p>Exact-ID parity across a diverse set — ASCII, CJK, emoji, code with tabs/newlines,
+      digit runs — <em>is</em> the definition of “works with this model”: it proves the
+      byte map, the regex, and the merge order are all correct at once. The test skips
+      gracefully if the (git-ignored) model assets aren’t fetched, so a fresh checkout
+      stays green.</p>
+    <div class="callout">
+      <strong>Stubbed &amp; deferred.</strong> <strong>Special tokens</strong>
+      (<code>&lt;|im_start|&gt;</code>, …) are an empty stub — they bypass BPE and the
+      golden never uses them; real carving is the M0 follow-up for chat templates. And
+      <code>bpe</code>’s O(n²)-per-word loop is fine for now (the regex bounds word size);
+      a <strong>HashMap memoization</strong> of <code>bpe(word)</code> is a recorded later
+      optimization.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.2 (p.46)</span>
+      <span class="chip chip--ds4">🔧 ds4 · ds4.c — bpe_tokenize_text, gpt2_byte_to_codepoint, str_i32_table</span>
+      <span class="chip chip--rasch">🧭 Raschka · Build an LLM — BPE chapter</span>
+    </div>
+    <p style="margin-top:1rem">See also the live
+      <a href="./diagrams.html#tokenizer">toy-BPE diagram</a>,
+      <a href="./learnings/03-bpe.md">learning 03 · BPE</a>, and the full writeup
+      <a href="https://github.com/curtisalexander/fs/blob/main/docs/01-tokenizer.md"><code>docs/01-tokenizer.md</code></a>.</p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM
+      inference by building it. Next milestone: <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/01-tokenizer.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>
