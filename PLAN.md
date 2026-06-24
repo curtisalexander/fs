@@ -100,3 +100,12 @@ After each milestone, write the next numbered doc after the map — e.g.
 three-way cross-links (book §/page, `ds4` file, Raschka). Start in Markdown;
 graduate the best ones to **rich HTML with diagrams** once content settles. Index
 everything in [`docs/RESOURCES.md`](docs/RESOURCES.md).
+
+**Learnings get their own home on the site.** The `docs/learnings/` notes are the
+Markdown source of truth *and* graduate into a dedicated **Learnings** section on
+the HTML site (its own nav entry + index), hand-distilled like the rest, linked
+from the doc/milestone that references them (link the `.html`, not the raw `.md`).
+HTML is where learnings earn nicer diagrams and *sparing* interactivity (à la
+`diagrams.html`). See [`docs/dev-loop.md`](docs/dev-loop.md) → "Learnings → the
+site's Learnings section" for the ritual. *(Back-graduation of `learnings/01–04`
+is owed — see `PROGRESS.md`.)*

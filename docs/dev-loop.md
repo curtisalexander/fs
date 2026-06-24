@@ -4,6 +4,10 @@ This repo is a slow, multi-session learning project. When coming back after a
 break, use this page to reload the context and run the small checks before
 changing code.
 
+> [`AGENTS.md`](../AGENTS.md) is the short operating contract auto-loaded every
+> session (Claude Code reads it via the `CLAUDE.md → AGENTS.md` symlink). It points
+> here; this page holds the detail.
+
 ## Start of session
 
 1. Read [`PROGRESS.md`](../PROGRESS.md) for the current milestone, last session,
@@ -161,6 +165,23 @@ After deliberately re-distilling a page, stamp the ledger:
 tools/sync-check.sh --update
 ```
 
+### Learnings → the site's Learnings section
+
+Learnings live as Markdown in [`docs/learnings/`](learnings/) (the source of
+truth) **and** graduate into a dedicated **Learnings** section on the HTML site,
+hand-distilled like every other page. Because HTML lets us do more than ASCII, a
+graduated learning is the place for nicer diagrams — and *sparing* interactivity
+in the style of [`diagrams.html`](diagrams.html) — to illustrate the idea.
+
+When you write or materially change a learning:
+
+1. Author/update the Markdown in `docs/learnings/NN-*.md` first.
+2. Graduate it to `docs/learnings/NN-*.html` under the site's Learnings section
+   (its own nav entry + index), adding diagrams/interactivity where they earn it.
+3. Link it from the doc/milestone that references it (link the **`.html`**, not
+   the raw `.md`).
+4. Re-stamp the sync ledger (`tools/sync-check.sh --update`).
+
 ## Dependency policy
 
 The project prefers small, understandable code and avoids dependencies that hide
@@ -185,7 +206,8 @@ Before stopping:
 1. Update [`PROGRESS.md`](../PROGRESS.md) with what changed, decisions made, and
    the next smallest step.
 2. If a milestone doc changed, consider whether the HTML distillation needs a
-   future sync note.
+   future sync note. If a **learning** was added/changed, note that it still owes
+   a graduation into the site's Learnings section (see Docs/site loop above).
 3. Leave the repo in a state where `cargo build` passes unless `PROGRESS.md`
    explicitly says otherwise.
 

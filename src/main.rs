@@ -22,15 +22,18 @@ fs — Failed Star inference engine
 USAGE:
     fs tokenize <TEXT>       Encode TEXT into token IDs
     fs detokenize <IDS...>   Decode token IDs (space-separated) back into text
+    fs inspect [DIR]         Print the model architecture + tensor table
     fs help                  Show this message
 
 EXAMPLES:
     fs tokenize \"hello world\"
     fs detokenize 14990 1879
+    fs inspect models/qwen3-0.6b
 
 SETUP:
     Tokenizer assets load from ./models/qwen3-0.6b/.
-    Fetch them first:  uv run --directory scripts fetch_model.py
+    Fetch them first:           uv run --directory scripts fetch_model.py
+    For `inspect`, also weights: uv run --directory scripts fetch_model.py --weights
 ";
 
 fn main() -> ExitCode {
@@ -39,6 +42,7 @@ fn main() -> ExitCode {
     match args.split_first() {
         Some((cmd, rest)) if cmd == "tokenize" => cmd_tokenize(rest),
         Some((cmd, rest)) if cmd == "detokenize" => cmd_detokenize(rest),
+        Some((cmd, rest)) if cmd == "inspect" => cmd_inspect(rest),
         Some((cmd, _)) if matches!(cmd.as_str(), "help" | "--help" | "-h") => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -119,6 +123,22 @@ fn cmd_detokenize(args: &[String]) -> ExitCode {
         }
         Err(e) => {
             eprintln!("fs detokenize: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `fs inspect [DIR]` — print the architecture + tensor table and cross-check the
+/// weights against `config.json`. DIR defaults to the bundled model directory.
+fn cmd_inspect(args: &[String]) -> ExitCode {
+    let dir = args.first().map(String::as_str).unwrap_or(MODEL_DIR);
+    match fs::inspect::run(dir) {
+        // A clean cross-check exits 0; a shape mismatch is a real failure (exit 1)
+        // even though we printed a full table.
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(e) => {
+            eprintln!("fs inspect: {e}");
             ExitCode::FAILURE
         }
     }

@@ -4,9 +4,82 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M0 — Tokenizer (✅ complete: all four stages + special tokens, **14/14 golden cases pass**, CLI runs, single-file `tokenizer.json` source). Next up: **M1 — load the weights**.
+**Current milestone:** M1 — Load the weights (◐ scaffolding). Design locked this session: mmap via raw FFI, lazy bf16 (raw bytes, convert on access), and a shape-first `fs inspect` that cross-checks the tensor set against `config.json`. M0 — Tokenizer is ✅ complete (all four stages + special tokens, **14/14 golden cases pass**, CLI runs, single-file `tokenizer.json` source).
 **Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B. The tokenizer loads everything from the single `tokenizer.json` (vocab + merges + regex + special tokens) in `src/tokenizer.rs` (`build_byte_encoder`, `build_vocab`/`build_merges`, `extract_pattern`, `build_special_tokens`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, special-token carving, and the wired `load`/`encode`/`decode`). 17 unit + 2 golden integration tests green; no warnings, clippy clean. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+
+---
+
+## Session 8 — 2026-06-24 — M1 kickoff: design dialogue, AGENTS.md, learnings-site policy
+
+**Did:** opened M1 (load the weights) with a scaffolding-first design dialogue
+(no engine code yet) and locked the milestone's shape.
+
+**M1 design decisions locked:**
+- **Storage = mmap via raw FFI**, implemented *now* (not deferred). It's the
+  zero-copy "the file *becomes* memory" lesson, fits the raw-FFI ethos + `ds4`,
+  and becomes its own teaching moment.
+- **bf16 = lazy.** Tensors stay raw bf16 bytes in the mapping; checksums run over
+  raw bytes (proves we read the right region). A `bf16_to_f32` helper gets written
+  but is only *called* in M2 — eager conversion would copy 1.4 GB → ~3 GB of f32
+  and defeat mmap.
+- **`fs inspect` = shape-first + config cross-check.** Output leads with a
+  dimension legend (V/H/L/d/heads/I), a grouped-by-layer table with an
+  `in ──▶ out` column so the residual stream is readable, and a cross-check that
+  asserts every Linear's `in` lines up with the architecture (q/k/v ← H, o ← 16·d,
+  gate/up ← H, down ← I; embed = [V,H]; tied lm_head) + total params (~596M,
+  embeddings ≈ 26%).
+- **Shape-clarity is a standing priority** (saved to agent memory): whenever shapes
+  appear — docs, CLI, code — make them explicit and *visible*, backed by asserts.
+  Learning-first; "make it fast" is a separate later lesson.
+
+**Scaffold landed (sketch-first, `todo!()` bodies, `cargo build` + `clippy` green):**
+- `src/config.rs` — `Config` (the 7 named dims + derived `q_width`/`kv_width`/
+  `gqa_group`) + `ConfigError`. Parses `config.json` via `serde_json::Value` by
+  hand (no `serde` derive, no new dep); graduating to a derive is an open option.
+- `src/safetensors.rs` — `Dtype`/`Tensor`/`SafeTensors` + `SafeTensorsError`, and
+  the **raw mmap FFI** (`unsafe extern "C"` `mmap`/`munmap`, no `libc` crate) behind
+  a small RAII `Mmap` (unmaps on `Drop`). `bf16_to_f32` written but unused until M2.
+- `src/inspect.rs` — `expected_tensors` (the config-derived spec), `cross_check`,
+  `render_legend`/`render_table`/`render_verdict`, `run`, `InspectError`.
+- `main.rs`/`lib.rs` — `fs inspect [DIR]` wired (panics via `todo!` until filled);
+  modules exported.
+- Docs: `docs/learnings/05-reading-shapes.md` (the shapes lesson) and
+  `docs/learnings/06-mmap.md` (mmap as its own note, per decision below); both
+  indexed in `docs/learnings/README.md`. Markdown-first; HTML graduation later.
+
+**Decision:** **mmap FFI is its own learning note** (`06-mmap.md`), not folded into
+the milestone writeup — it's a standalone teaching topic (virtual memory, lazy
+paging, raw POSIX FFI, RAII cleanup).
+
+**Process / docs decisions:**
+- **AGENTS.md + symlink.** Added a tight [`AGENTS.md`](AGENTS.md) operating
+  contract and symlinked `CLAUDE.md → AGENTS.md` so Claude Code auto-loads it every
+  session (it does *not* read AGENTS.md natively; it follows the symlink). AGENTS.md
+  points at `PROGRESS.md`/`PLAN.md`/`dev-loop.md` and lists the core invariants — it
+  does not inline them.
+- **Learnings get their own site section.** Policy: learnings stay Markdown-source
+  but graduate into a dedicated **Learnings** HTML section (own nav + index),
+  linked from the referencing doc (`.html`, not raw `.md`), with nicer diagrams and
+  sparing interactivity à la `diagrams.html`. Recorded in `docs/dev-loop.md`
+  (start/Docs-site-loop/end), `PLAN.md` (parallel track), and here. **Sequencing:**
+  build M1 + author `05`/`06` Markdown now; batch-graduate `learnings/01–06` to HTML
+  at M1 milestone-doc time. ⏳ **Owed debt:** back-graduate `learnings/01–04`
+  (pre-existing) along with the two new ones.
+- **Weights fetched:** `model.safetensors` (1.4 GB) downloaded via
+  `fetch_model.py --weights` — `fs inspect` will open a real file.
+- **Diagram polish:** fixed two misaligned ASCII boxes in `05-reading-shapes.md`
+  (the `A·B` inner-dim bracket and the residual-stream block) — miscounted widths,
+  not glyph issues. Reinforces the plan to render Learnings diagrams properly in
+  HTML so alignment stops being hand-counted.
+
+**Stopped here:** scaffold complete and green; **no helper bodies implemented yet**
+(all `todo!()`). `cargo build` + `cargo clippy` pass. Resume at `Mmap::open`.
+
+**Next:** implement bottom-up, one helper at a time (M0 cadence): `Mmap::open`
+(the FFI) → `SafeTensors::load` (u64 header len → JSON header → tensor directory) →
+`Config::load` → `expected_tensors`/`cross_check` → the `render_*` table, verifying
+against the real `model.safetensors` (1.4 GB, already on disk). Then `docs/02-weights.md`.
 
 ---
 

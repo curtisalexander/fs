@@ -7,3 +7,9 @@
 //! [`PLAN.md`]: ../PLAN.md
 
 pub mod tokenizer;
+
+// M1 — load the weights: read `config.json` (the architecture) and
+// `model.safetensors` (the weights), and verify they line up via `fs inspect`.
+pub mod config;
+pub mod inspect;
+pub mod safetensors;
