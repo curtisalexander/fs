@@ -60,6 +60,29 @@
   </div>
 </section>
 
+<!-- ============================== PROJECT STATUS ============================== -->
+<section id="status">
+  <div class="container">
+    <p class="eyebrow">Where we are</p>
+    <h2>Build progress</h2>
+    <div class="progress">
+      <div class="progress-bar"><span style="width:14%"></span></div>
+      <p class="progress-caption"><strong>1 / 7</strong> core milestones done ·
+        currently <strong class="cur">M1 — load the weights</strong></p>
+      <ol class="milestones">
+        <li class="ms ms--done"><span class="ms-id">M0</span><span class="ms-name">Tokenizer</span></li>
+        <li class="ms ms--now"><span class="ms-id">M1</span><span class="ms-name">Load weights</span></li>
+        <li class="ms"><span class="ms-id">M2</span><span class="ms-name">Forward pass</span></li>
+        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Sampling</span></li>
+        <li class="ms"><span class="ms-id">M4</span><span class="ms-name">KV cache</span></li>
+        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Quantization</span></li>
+        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal kernels</span></li>
+        <li class="ms ms--stretch"><span class="ms-id">7+</span><span class="ms-name">Stretch</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
 <!-- ============================== ONE SENTENCE ============================== -->
 <section id="what">
   <div class="container prose">
@@ -272,10 +295,10 @@
 <section id="scope">
   <div class="container">
     <p class="eyebrow">Who covers what</p>
-    <h2>Failed Star vs Dwarf Star vs the Book</h2>
+    <h2>Failed Star vs Dwarf Star vs IE (Kiely)</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Layer</th><th>The book</th><th><code>ds4</code></th><th>Failed Star builds</th></tr></thead>
+        <thead><tr><th>Layer</th><th>IE (Kiely)</th><th><code>ds4</code></th><th>Failed Star builds</th></tr></thead>
         <tbody>
           <tr><td>Concepts / vocabulary</td><td class="yes">✅ everything</td><td class="no">—</td><td class="no">— (we cite it)</td></tr>
           <tr><td>Tokenizer</td><td>mentions</td><td><code>ds4.c</code> (hash table)</td><td>M0 (Rust)</td></tr>

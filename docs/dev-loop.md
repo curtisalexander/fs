@@ -188,3 +188,15 @@ Before stopping:
    future sync note.
 3. Leave the repo in a state where `cargo build` passes unless `PROGRESS.md`
    explicitly says otherwise.
+
+### When a milestone flips (done / new "current")
+
+Milestone status is shown in four hand-maintained places — bump all of them in
+the same commit so they don't drift:
+
+1. [`PLAN.md`](../PLAN.md) — the `☐ ◐ ☑` legend on the milestone heading.
+2. [`PROGRESS.md`](../PROGRESS.md) — the **Current milestone** line at the top.
+3. [`README.md`](../README.md) — the **Status** blurb and the milestone checklist.
+4. [`docs/index.html`](index.html) — the **Build progress** strip: flip the
+   `ms--done`/`ms--now` classes, the `progress-bar` width (done ÷ 7 core), and
+   the caption.

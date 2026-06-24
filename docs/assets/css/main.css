@@ -219,6 +219,34 @@ td .yes { color: var(--book); } td .no { color: var(--text-mute); }
 .phase h3 { margin-top: 0; }
 .phase .stat { font-family: var(--mono); font-size: 1.5rem; color: var(--ember); }
 
+/* ---- Build progress ------------------------------------------------------- */
+.progress { max-width: var(--wide); }
+.progress-bar { height: 6px; border-radius: 999px; background: var(--surface-2);
+  border: 1px solid var(--border); overflow: hidden; }
+.progress-bar span { display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--rust), var(--ember)); }
+.progress-caption { font-family: var(--mono); font-size: 0.82rem; color: var(--text-mute);
+  margin: 0.6rem 0 1.1rem; }
+.progress-caption .cur { color: var(--ember); }
+.milestones { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem;
+  padding: 0; margin: 0; }
+.ms { display: flex; flex-direction: column; gap: 0.1rem; flex: 1 1 6rem; min-width: 5rem;
+  padding: 0.5rem 0.7rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); }
+.ms-id { font-family: var(--mono); font-weight: 700; font-size: 0.92rem; color: var(--text-mute); }
+.ms-name { font-size: 0.78rem; color: var(--text-mute); }
+.ms--done { border-color: color-mix(in oklab, var(--ember) 45%, var(--border));
+  background: color-mix(in oklab, var(--ember) 12%, var(--surface)); }
+.ms--done .ms-id, .ms--done .ms-name { color: var(--text-dim); }
+.ms--done .ms-id::after { content: " ✓"; color: var(--ember); }
+.ms--now { border-color: var(--ember);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--ember) 40%, transparent),
+              0 0 16px -6px var(--ember); }
+.ms--now .ms-id { color: var(--ember); }
+.ms--now .ms-id::after { content: " ●"; font-size: 0.7em; vertical-align: 0.12em; }
+.ms--now .ms-name { color: var(--text-dim); }
+.ms--stretch { border-style: dashed; }
+
 /* ---- Footer --------------------------------------------------------------- */
 .site-footer { border-top: 1px solid var(--border); color: var(--text-mute);
   font-size: 0.86rem; padding-block: 2.5rem; }

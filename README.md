@@ -70,13 +70,17 @@ fs/
 ├── scripts/                   ← uv-managed Python oracle/data scripts
 ├── tests/golden/              ← committed golden fixtures for verification
 ├── tools/                     ← site/sync helper scripts
-├── docs/
+├── docs/                       ← the learning site + notes (served at /fs via Pages)
+│   ├── index.html             ← learning-site landing page (rich HTML)
 │   ├── prerequisites.md       ← what to know before diving in (read this first)
 │   ├── 00-map.md              ← THE BIG PICTURE of an inference engine
+│   ├── 01-tokenizer.md        ← M0 writeup (.md + rich .html version)
 │   ├── dev-loop.md            ← how to resume work after a break
 │   ├── testing.md             ← verification strategy and golden-vector plan
+│   ├── diagrams.html          ← shared diagram gallery
 │   ├── RESOURCES.md           ← cross-reference index (book §§, ds4 files, Raschka)
-│   └── learnings/             ← bite-sized notes on what we figured out & why
+│   ├── learnings/             ← bite-sized notes on what we figured out & why
+│   └── assets/                ← logo + site assets
 ├── reference/ds4/             ← antirez's ds4 — pinned git submodule (read-only ref)
 └── models/                    ← downloaded model assets (ignored; generated locally)
 ```
@@ -97,10 +101,24 @@ fs/
 
 ## Status
 
-🌱 **M0 — Tokenizer, in progress.** Rust scaffolding, the uv data pipeline, and
-committed golden tokenizer vectors are in place. Next step: implement the
-byte-level BPE tokenizer helper-by-helper and verify it against
-`tests/golden/tokenizer.json`.
+🌱 **M0 — Tokenizer: ✅ done. M1 — Load the weights: in progress.** The
+byte-level BPE tokenizer is implemented and verified — `fs tokenize` /
+`fs detokenize` run end-to-end against Qwen3-0.6B, loading vocab + merges + regex
++ special tokens from the single `tokenizer.json` (14/14 golden cases pass; see
+[`docs/01-tokenizer.md`](docs/01-tokenizer.md)). Next step: parse the safetensors
+weights and `config.json` so `fs inspect model/` can print the architecture and
+tensor table.
+
+**Milestones** (the full curriculum, with cross-links, lives in [`PLAN.md`](PLAN.md)):
+
+- [x] **M0 — Tokenizer** — text ↔ token IDs, verified against the real vocab
+- [ ] **M1 — Load the weights** ← *current*
+- [ ] M2 — Forward pass → logits
+- [ ] M3 — Sampling → generation
+- [ ] M4 — KV cache
+- [ ] M5 — Quantization
+- [ ] M6 — Metal acceleration
+- [ ] M7+ — Stretch goals
 
 This is a slow, multi-session learning project. It is not (yet) fast, capable, or
 finished — that's the point. Local models keep getting better; the bet is that a
