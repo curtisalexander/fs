@@ -135,7 +135,7 @@
 
         <!-- contract highlight: x width must equal W's 'in' columns -->
         <path class="cut" d="M26 138 L26 158 L370 158 L370 148"/>
-        <text x="198" y="176" text-anchor="middle" class="note">contract: in = 1024 (x's width = W's columns) — the k that must match</text>
+        <text x="26" y="176" class="note">contract: in = 1024 (x's width = W's columns) — the k that must match</text>
 
         <!-- read direction -->
         <text x="26" y="216" class="lab">read it as:</text>
@@ -192,11 +192,11 @@
         <text x="372" y="164" text-anchor="middle" class="note">H = 1024 · the width is constant end-to-end</text>
 
         <!-- fan-out bumps above the bus -->
-        <rect class="fan" x="196" y="66" width="82" height="30"/>
+        <rect class="fan" x="183" y="66" width="108" height="30"/>
         <text x="237" y="85" text-anchor="middle" class="sub">attn · 16·d=2048</text>
         <path class="con" d="M210 120 L216 96 M264 96 L270 120"/>
 
-        <rect class="fan" x="446" y="66" width="82" height="30"/>
+        <rect class="fan" x="433" y="66" width="108" height="30"/>
         <text x="487" y="85" text-anchor="middle" class="sub">FFN · I=3072</text>
         <path class="con" d="M460 120 L466 96 M514 96 L520 120"/>
 
@@ -313,7 +313,7 @@
         <line class="cell" x1="646.5" y1="62" x2="646.5" y2="108"/>
         <text x="218"  y="90" text-anchor="middle" class="sub">h0</text>
         <text x="248"  y="90" text-anchor="middle" class="sub">h1</text>
-        <text x="440"  y="90" text-anchor="middle" class="sub">…</text>
+        <text x="455"  y="90" text-anchor="middle" class="sub">…</text>
         <text x="661"  y="90" text-anchor="middle" class="sub">h15</text>
 
         <text x="24" y="150" class="note">attention happens per head, then concat ──o_proj [1024,2048]──▶ H = 1024</text>
@@ -361,16 +361,15 @@
         <rect class="qh" x="404" y="54" width="40" height="30"/><text x="424" y="74" text-anchor="middle" class="lab">Q5</text>
         <text x="500" y="74" class="note">…</text>
 
-        <!-- joins to kv -->
-        <path class="join" d="M102 84 L102 96 L122 96 L122 108 M124 84 L124 96"/>
-        <path class="join" d="M122 96 L122 108"/>
-        <path class="join" d="M252 84 L252 96 L272 96 L272 108 M274 84 L274 96"/>
-        <path class="join" d="M402 84 L402 96 L422 96 L422 108 M424 84 L424 96"/>
+        <!-- joins: the two query heads in a group bracket down into one kv head -->
+        <path class="join" d="M80 84 L80 96 L124 96 L124 84 M102 96 L102 108"/>
+        <path class="join" d="M230 84 L230 96 L274 96 L274 84 M252 96 L252 108"/>
+        <path class="join" d="M380 84 L380 96 L424 96 L424 84 M402 96 L402 108"/>
 
-        <!-- kv heads -->
-        <rect class="kv" x="102" y="108" width="44" height="30"/><text x="124" y="128" text-anchor="middle" class="lab">KV0</text>
-        <rect class="kv" x="252" y="108" width="44" height="30"/><text x="274" y="128" text-anchor="middle" class="lab">KV1</text>
-        <rect class="kv" x="402" y="108" width="44" height="30"/><text x="424" y="128" text-anchor="middle" class="lab">KV2</text>
+        <!-- kv heads (each centered under its query pair) -->
+        <rect class="kv" x="80"  y="108" width="44" height="30"/><text x="102" y="128" text-anchor="middle" class="lab">KV0</text>
+        <rect class="kv" x="230" y="108" width="44" height="30"/><text x="252" y="128" text-anchor="middle" class="lab">KV1</text>
+        <rect class="kv" x="380" y="108" width="44" height="30"/><text x="402" y="128" text-anchor="middle" class="lab">KV2</text>
         <text x="500" y="128" class="note">…</text>
         <text x="24" y="162" class="sub">kv heads · 8 · width 1024</text>
 

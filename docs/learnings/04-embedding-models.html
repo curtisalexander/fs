@@ -139,28 +139,28 @@
 
         <!-- SENSE 3: forward pass -->
         <text x="16" y="112" class="note">sense #3 — a forward pass + pooling (context-aware)</text>
-        <rect class="boxe" x="16"  y="124" width="82"  height="34" rx="4"/>
-        <text x="57"  y="145" text-anchor="middle" class="lab">text</text>
-        <path class="arr" d="M100 141 H130"/>
-        <rect class="box" x="132" y="124" width="90"  height="34" rx="4"/>
-        <text x="177" y="141" text-anchor="middle" class="lab">tokenize</text>
-        <text x="177" y="153" text-anchor="middle" class="sub">+ table gather</text>
-        <path class="arr" d="M224 141 H252"/>
-        <rect class="box" x="254" y="124" width="122" height="34" rx="4"/>
-        <text x="315" y="141" text-anchor="middle" class="lab">transformer</text>
-        <text x="315" y="153" text-anchor="middle" class="sub">attention mixes ctx</text>
-        <path class="arr" d="M378 141 H406"/>
-        <rect class="box" x="408" y="124" width="96"  height="34" rx="4"/>
-        <text x="456" y="141" text-anchor="middle" class="lab">pool</text>
-        <text x="456" y="153" text-anchor="middle" class="sub">mean / CLS / last</text>
-        <path class="arr" d="M506 141 H534"/>
-        <rect class="out" x="536" y="124" width="168" height="34" rx="4"/>
-        <text x="620" y="141" text-anchor="middle" class="lab">one vector (#3)</text>
-        <text x="620" y="153" text-anchor="middle" class="sub">+ L2-normalize</text>
+        <rect class="boxe" x="16"  y="124" width="64"  height="34" rx="4"/>
+        <text x="48"  y="145" text-anchor="middle" class="lab">text</text>
+        <path class="arr" d="M82 141 H108"/>
+        <rect class="box" x="110" y="124" width="104" height="34" rx="4"/>
+        <text x="162" y="141" text-anchor="middle" class="lab">tokenize</text>
+        <text x="162" y="153" text-anchor="middle" class="sub">+ table gather</text>
+        <path class="arr" d="M216 141 H242"/>
+        <rect class="box" x="244" y="124" width="136" height="34" rx="4"/>
+        <text x="312" y="141" text-anchor="middle" class="lab">transformer</text>
+        <text x="312" y="153" text-anchor="middle" class="sub">attention mixes ctx</text>
+        <path class="arr" d="M382 141 H408"/>
+        <rect class="box" x="410" y="124" width="124" height="34" rx="4"/>
+        <text x="472" y="141" text-anchor="middle" class="lab">pool</text>
+        <text x="472" y="153" text-anchor="middle" class="sub">mean / CLS / last</text>
+        <path class="arr" d="M536 141 H562"/>
+        <rect class="out" x="564" y="124" width="140" height="34" rx="4"/>
+        <text x="634" y="141" text-anchor="middle" class="lab">one vector (#3)</text>
+        <text x="634" y="153" text-anchor="middle" class="sub">+ L2-normalize</text>
 
         <!-- bracket: the lookup is merely the input layer here -->
-        <path d="M132 168 V176 H222 V168" fill="none" stroke="var(--text-mute)" stroke-width="1"/>
-        <text x="177" y="192" text-anchor="middle" class="note">the #1 lookup, as the INPUT layer</text>
+        <path d="M110 168 V176 H214 V168" fill="none" stroke="var(--text-mute)" stroke-width="1"/>
+        <text x="162" y="192" text-anchor="middle" class="note">the #1 lookup, as the INPUT layer</text>
         <text x="16" y="220" class="sub">meaning comes from the whole forward pass — not from the raw input rows.</text>
       </svg>
       <div class="legend">
