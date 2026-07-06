@@ -51,6 +51,7 @@ const MAP_PRIVATE: c_int = 0x2; // copy-on-write, private to us (we only read)
 const MAP_FAILED: *mut c_void = usize::MAX as *mut c_void;
 
 /// A read-only memory mapping of a whole file. Owns the mapping; unmaps on drop.
+#[derive(Debug)] // so `Result<Mmap, _>::unwrap_err()` can print the Ok side in tests
 struct Mmap {
     ptr: *const u8,
     len: usize,
@@ -67,8 +68,45 @@ impl Mmap {
     /// 4. compare the result against `MAP_FAILED`; on success keep `(ptr, len)`.
     ///    The fd may be closed after mapping — the mapping keeps the file alive.
     fn open(path: &str) -> Result<Self, SafeTensorsError> {
-        let _ = path;
-        todo!("open + fstat len + mmap(PROT_READ, MAP_PRIVATE); check MAP_FAILED")
+        // `File::as_raw_fd()` lives behind this trait: a fd is just a small int the
+        // kernel uses to name our open file, and it's all `mmap` needs to find it.
+        use std::os::fd::AsRawFd;
+
+        // Every failure below should name the file it was mapping.
+        let fail = |message: String| SafeTensorsError::MapFailed { path: path.to_string(), message };
+
+        // 1. Open the file → an OS file descriptor (the kernel's handle to it).
+        let file = std::fs::File::open(path).map_err(|e| fail(e.to_string()))?;
+
+        // 2. The map length is the file's size: `mmap` maps a byte *range*, so to map
+        //    the whole file we must first tell it how many bytes that is.
+        let len = file.metadata().map_err(|e| fail(e.to_string()))?.len() as usize;
+
+        // 3. `mmap` rejects a zero-length mapping (EINVAL). Catch it here so the error
+        //    reads "empty file" instead of a bare errno from step 5.
+        if len == 0 {
+            return Err(fail("file is empty — nothing to map".into()));
+        }
+
+        // 4. The syscall. This one FFI call is where all the kernel work happens, so it
+        //    is `unsafe`: we promise the arguments uphold mmap's contract and that we'll
+        //    honor the returned pointer's rules. Args (see learning 06's table):
+        //      addr=null → kernel picks the address · len → map the whole file
+        //      PROT_READ → read-only pages · MAP_PRIVATE → copy-on-write, private to us
+        //      fd → which file · offset=0 → from the first byte
+        let ptr = unsafe {
+            mmap(std::ptr::null_mut(), len, PROT_READ, MAP_PRIVATE, file.as_raw_fd(), 0)
+        };
+
+        // 5. Failure is MAP_FAILED = (void*)-1, *not* null — a null check would miss
+        //    every error. `last_os_error()` reads the errno the syscall just set.
+        if ptr == MAP_FAILED {
+            return Err(fail(std::io::Error::last_os_error().to_string()));
+        }
+
+        // The fd has done its job: a live mapping keeps its own reference to the file,
+        // so `file` can drop here (closing the fd) without tearing the mapping down.
+        Ok(Mmap { ptr: ptr as *const u8, len })
     }
 
     /// The mapped bytes as a slice. Safe to expose: the mapping is read-only and
@@ -256,3 +294,44 @@ impl std::fmt::Display for SafeTensorsError {
 }
 
 impl std::error::Error for SafeTensorsError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    // A unique temp path per test so the (parallel) tests never collide on a file.
+    fn temp_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("fs_mmap_{tag}.bin"))
+    }
+
+    #[test]
+    fn maps_a_file_and_reads_its_exact_bytes() {
+        // Include a NUL and high bytes to prove we read raw bytes, not a UTF-8 string.
+        let data: &[u8] = b"failed star \x00\x01\xfe\xff mmap";
+        let path = temp_path("roundtrip");
+        std::fs::File::create(&path).unwrap().write_all(data).unwrap();
+
+        let map = Mmap::open(path.to_str().unwrap()).expect("mapping a real file should succeed");
+        assert_eq!(map.len, data.len(), "map length must equal file size");
+        assert_eq!(map.as_bytes(), data, "the mapped view is the file's bytes, zero-copy");
+        // `map` drops at end of scope → its `munmap` runs (RAII). Then clean up.
+        drop(map);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn missing_file_is_a_typed_error_not_a_panic() {
+        let err = Mmap::open("/no/such/failed-star/file.bin").unwrap_err();
+        assert!(matches!(err, SafeTensorsError::MapFailed { .. }));
+    }
+
+    #[test]
+    fn empty_file_is_rejected_before_the_syscall() {
+        let path = temp_path("empty");
+        std::fs::File::create(&path).unwrap(); // zero bytes
+        let err = Mmap::open(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, SafeTensorsError::MapFailed { .. }), "mmap can't map 0 bytes");
+        std::fs::remove_file(&path).ok();
+    }
+}
