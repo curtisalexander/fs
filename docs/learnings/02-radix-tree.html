@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 02 — Radix trees — Failed Star</title>
+<meta name="description" content="What a radix tree actually is (a compact prefix tree with edge compression), how it differs from a hash table, and why ds4's tokenizer uses a hash table while its agent memory uses the radix tree.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/02-radix-tree.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 02 · what ds4 actually uses them for</p>
+    <h2>Radix trees: a prefix tree with the chains squeezed out</h2>
+    <p class="note-meta"><b>Context:</b> understanding ds4's data structures ·
+      <b>Status:</b> <span class="status-live">clarified a doc error</span></p>
+    <p class="lead">We went looking because an earlier note claimed <em>“ds4's tokenizer uses a
+      radix tree.”</em> Reading the code, <strong>that turned out to be wrong</strong> — and
+      untangling it is a good excuse to learn what a radix tree actually is and when you'd reach
+      for one.</p>
+    <div class="callout">
+      <strong>The correction in one line.</strong> ds4's tokenizer uses a <strong>hash
+      table</strong> (<code>ds4.c</code>). The radix tree does exist in ds4 — but it lives in the
+      server's <strong>agent memory</strong> (<code>ds4_server.c</code>), a completely separate job.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering · §2.2 tokenization (p.46)</span>
+      <span class="chip chip--ds4">🔧 ds4 · rax.c/rax.h in ds4_server.c; hash table in ds4.c</span>
+      <span class="chip chip--rasch">🧭 antirez's rax — the radix lib Redis uses for stream IDs</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== WHAT IT IS ============================== -->
+<section id="what">
+  <div class="container">
+    <p class="eyebrow">Start from a plain trie</p>
+    <h2>What a radix tree is</h2>
+    <p class="prose">A <strong>radix tree</strong> (a.k.a. radix trie, or <em>compact prefix
+      tree</em>) stores <strong>strings as keys</strong>: the path from the root down to a node
+      spells out the key. Its defining trick is <strong>edge compression</strong>. To see it,
+      start from a <strong>plain trie</strong> — one character per edge — storing
+      <code>"tea"</code>, <code>"team"</code>, <code>"ten"</code>:</p>
+    <pre><code>(root)
+  └─ t ── e ── a ── m      "team"
+                └ ●        "tea"
+          └ n ── ●         "ten"</code></pre>
+    <p class="prose">Every node branches up to <em>N</em> ways (one per possible next byte). The
+      waste: a long run with no branching still costs one node per character.
+      <code>"tokenizer"</code> would be a 9-node single-file chain — bad for both memory and
+      pointer-chasing.</p>
+    <p class="prose"><strong>The radix-tree fix:</strong> collapse any chain of single-child nodes
+      into <strong>one edge labeled with the whole substring</strong>. Nodes appear <em>only
+      where keys diverge</em>:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 660 250" role="img"
+           aria-label="Radix tree for tea, team, ten. The shared prefix te is one edge; the tree branches only where keys split — a versus n after te, and end versus m after tea.">
+        <style>
+          .edge   { stroke: var(--border-2); stroke-width: 1.5; }
+          .nInt   { fill: var(--ember); fill-opacity: .22; stroke: var(--ember); stroke-width: 1.5; }
+          .nEnd   { fill: var(--ds4);   fill-opacity: .24; stroke: var(--ds4);   stroke-width: 1.5; }
+          .nlab   { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .elab   { font-family: var(--mono); font-size: 13px; fill: var(--text-dim); }
+          .klab   { font-family: var(--mono); font-size: 12px; fill: var(--text-mute); }
+        </style>
+
+        <!-- edges (drawn first; nodes sit on top) -->
+        <line class="edge" x1="90"  y1="120" x2="212" y2="120"/><!-- root -> B  "te" -->
+        <line class="edge" x1="242" y1="120" x2="382" y2="66"/><!-- B -> A  "a" -->
+        <line class="edge" x1="242" y1="120" x2="382" y2="184"/><!-- B -> N  "n" -->
+        <line class="edge" x1="426" y1="66"  x2="548" y2="66"/><!-- A -> M  "m" -->
+
+        <!-- edge labels -->
+        <text x="150" y="112" text-anchor="middle" class="elab">"te"</text>
+        <text x="308" y="80"  text-anchor="middle" class="elab">"a"</text>
+        <text x="300" y="168" text-anchor="middle" class="elab">"n"</text>
+        <text x="487" y="58"  text-anchor="middle" class="elab">"m"</text>
+
+        <!-- nodes -->
+        <rect class="nInt" x="26"  y="104" width="64" height="32" rx="8"/>
+        <text x="58"  y="124" text-anchor="middle" class="nlab">root</text>
+
+        <rect class="nInt" x="196" y="104" width="46" height="32" rx="8"/>
+        <text x="219" y="124" text-anchor="middle" class="nlab">•</text>
+
+        <rect class="nEnd" x="382" y="50"  width="44" height="32" rx="8"/>
+        <text x="404" y="70"  text-anchor="middle" class="nlab">●</text>
+        <text x="436" y="70"  text-anchor="start"  class="klab">"tea"</text>
+
+        <rect class="nEnd" x="548" y="50"  width="52" height="32" rx="8"/>
+        <text x="574" y="70"  text-anchor="middle" class="nlab">●</text>
+        <text x="574" y="102" text-anchor="middle" class="klab">"team"</text>
+
+        <rect class="nEnd" x="382" y="168" width="44" height="32" rx="8"/>
+        <text x="404" y="188" text-anchor="middle" class="nlab">●</text>
+        <text x="436" y="188" text-anchor="start"  class="klab">"ten"</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ember)"></i> internal node (a branch point)</span>
+        <span><i style="background:var(--ds4)"></i> ● key-ending node</span>
+      </div>
+      <figcaption><code>"te"</code> is stored once; the tree branches only where the keys
+        actually split — after <code>te</code> (<code>a</code> vs <code>n</code>), and after
+        <code>tea</code> (end vs <code>m</code>). Edges are labeled with <strong>sequences</strong>,
+        not single symbols — that's the “radix” idea.</figcaption>
+    </figure>
+
+    <p class="prose">Why you'd reach for one:</p>
+    <ul class="checklist">
+      <li><strong>Prefix-structured</strong> — keys sharing a prefix share the path. Natural for
+        “everything starting with <code>foo</code>”, longest-prefix matching, ordered iteration.</li>
+      <li><strong>Memory-efficient vs a plain trie</strong> — no long single-child chains.</li>
+      <li><strong>Lookup is O(key length)</strong>, independent of how many keys are stored — you
+        walk the query's bytes down the tree, never comparing against the other keys.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================== VS ALTERNATIVES ============================== -->
+<section id="compare">
+  <div class="container">
+    <p class="eyebrow">How it stacks up</p>
+    <h2>Radix tree vs the alternatives</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th></th><th>Hash table</th><th>Radix tree</th><th>Sorted array + binary search</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Exact lookup</td><td>~O(1) after hashing</td><td>O(key length) walk</td><td>O(key length × log n)</td></tr>
+          <tr><td>Ordered iteration</td><td>✗</td><td>✓ (lexicographic)</td><td>✓</td></tr>
+          <tr><td>Prefix / range queries</td><td>✗</td><td>✓ (the whole point)</td><td>partial</td></tr>
+          <tr><td>Shares memory across common prefixes</td><td>✗</td><td>✓</td><td>✗</td></tr>
+          <tr><td>Cache behavior</td><td>one hash, random probe</td><td>many small pointer hops</td><td>good (contiguous)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Headline.</strong> A <strong>hash table</strong> wins for pure “exact key → value”
+      when you never need order or prefixes. A <strong>radix tree</strong> wins when
+      <strong>prefix relationships or sorted order matter</strong>.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== WHAT DS4 DOES ============================== -->
+<section id="ds4">
+  <div class="container">
+    <p class="eyebrow">Two structures, two jobs</p>
+    <h2>What ds4 actually does</h2>
+    <p class="prose">Two separate data structures, two separate jobs — and the radix tree is
+      <strong>not</strong> the one in the tokenizer.</p>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Tokenizer → hash table</h3>
+        <p class="prose" style="margin:0 0 .6rem">ds4's byte-level BPE does repeated
+          <strong>exact</strong> lookups: “is this exact byte string a known token, and what's its
+          id?” and “what's the merge rank of this exact pair?” No prefixes, no ordering — so an
+          open-addressing hash table fits:</p>
+        <ul class="checklist" style="margin:0">
+          <li><code>str_i32_table</code> — <code>ds4.c:20689</code> (power-of-two capacity,
+            <code>hash_bytes</code> + linear probing).</li>
+          <li>Vocab fields <code>token_to_id</code> / <code>merge_rank</code> — <code>ds4.c:20791</code>.</li>
+          <li>Lookups via <code>table_get</code> in the BPE inner loop — e.g. <code>ds4.c:21016</code>.</li>
+        </ul>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Agent memory → radix tree</h3>
+        <p class="prose" style="margin:0 0 .6rem">antirez's <code>rax</code> library <em>is</em>
+          compiled into ds4, but it powers the built-in agent's <strong>tool-memory store</strong>,
+          not the tokenizer:</p>
+        <ul class="checklist" style="margin:0">
+          <li><code>m-&gt;by_id = raxNew();</code> and <code>m-&gt;by_block = raxNew();</code>
+            — <code>ds4_server.c:7764</code>.</li>
+          <li>Maps string IDs and “dsml” block content to memory entries
+            (<code>raxInsert</code> / <code>raxFind</code>, ~<code>ds4_server.c:7808</code>).</li>
+        </ul>
+      </div>
+    </div>
+    <p class="prose">The radix tree is a sensible fit here: memories are keyed by strings you want
+      <strong>ordered and prefix-addressable</strong> access to — exactly its strength. (Redis,
+      also antirez, uses the same <code>rax</code> for stream IDs for the same reasons.)</p>
+  </div>
+</section>
+
+<!-- ============================== MENTAL MODEL ============================== -->
+<section id="model">
+  <div class="container">
+    <p class="eyebrow">The takeaway</p>
+    <h2>Mental model to keep</h2>
+    <div class="callout prose">
+      <strong>Exact key → value, nothing more?</strong> Hash table.<br>
+      <strong>Need prefixes, longest-match, or sorted order?</strong> Radix tree.<br>
+      ds4's tokenizer is the first case (hash table, <code>ds4.c</code>); ds4's agent memory is
+      the second (radix tree, <code>ds4_server.c</code>). A radix tree <em>can</em> tokenize (handy
+      for greedy longest-match schemes like WordPiece/Unigram), but byte-level BPE doesn't need it.
+    </div>
+    <div class="card card--teach">
+      <h3>For our M0 tokenizer</h3>
+      <p class="prose" style="margin:0">Follow ds4's actual design: a hash map
+        (<code>HashMap&lt;Vec&lt;u8&gt;, u32&gt;</code> for token→id, plus merge ranks) is all
+        byte-level BPE needs. Reach for a trie/radix structure only if we later add a
+        longest-match tokenizer that benefits from prefix walking.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./03-bpe.html">Learning 03 · byte-level BPE</a> — the exact-lookup workload
+          that makes the tokenizer a hash-table job, not a radix-tree one.</li>
+        <li><a href="../01-tokenizer.html">Milestone M0 · the tokenizer</a> — where this decision
+          lands: a plain <code>HashMap</code> for token→id and merge ranks.</li>
+        <li>🔧 <a href="https://github.com/antirez/ds4">antirez/ds4</a> — <code>rax.c</code>/<code>rax.h</code>
+          (the radix library) used by <code>ds4_server.c</code>; the tokenizer hash table lives in
+          <code>ds4.c</code>.</li>
+        <li>🧭 <a href="https://github.com/redis/redis">redis/redis</a> — the same
+          <code>rax</code> library, used there for stream IDs.</li>
+        <li>Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/02-radix-tree.md"><code>docs/learnings/02-radix-tree.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M0 — the tokenizer</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/02-radix-tree.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

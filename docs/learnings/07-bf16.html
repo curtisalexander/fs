@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 07 — bf16 — Failed Star</title>
+<meta name="description" content="bf16, the number format Qwen3-0.6B's weights ship in: it's fp32 with a shorter mantissa, so widening to f32 is a free 16-bit shift — and why Failed Star does it lazily.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/07-bf16.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 07 · the weights' number format</p>
+    <h2>bf16: fp32 with a haircut</h2>
+    <p class="note-meta"><b>Context:</b> M1, the dtype in <code>model.safetensors</code> ·
+      <b>Status:</b> <span class="status-live">living</span></p>
+    <p class="lead">Qwen3-0.6B's weights are <strong>all <code>BF16</code></strong>. Before we
+      load a single tensor it's worth knowing exactly what those two bytes <em>are</em> —
+      because M1's signature decision, <strong>“lazy bf16,”</strong> only makes sense once you
+      can see the format.</p>
+    <div class="callout">
+      <strong>This is not quantization.</strong> That's M5, and it's a different, lossy
+      story (bytes that need <em>decoding</em>). bf16 is a plain IEEE-style float — just a
+      narrow one, whose bytes already <em>are</em> the numbers.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §5.1 (p.120)</span>
+      <span class="chip chip--ds4">🔧 ds4 · f16/f32 tensors in ds4.c; metal/* compute in f32</span>
+      <span class="chip chip--rasch">🧭 Google Brain bfloat16 · Raschka on mixed precision</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE THREE FLOATS ============================== -->
+<section id="formats">
+  <div class="container">
+    <p class="eyebrow">Same idea, different budgets</p>
+    <h2>Three floats, one bit-budget to split</h2>
+    <p class="prose">A binary float spends its bits on three fields: <strong>sign · exponent ·
+      mantissa</strong> (the fraction). The <strong>exponent</strong> sets the <em>range</em>
+      (how big / how small); the <strong>mantissa</strong> sets the <em>precision</em> (how
+      many significant bits). Drawn to scale — one tick per bit — the three formats we care
+      about split that budget very differently:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 210" role="img"
+           aria-label="Bit-field diagram of fp32, fp16 and bf16. bf16 keeps fp32's 8-bit exponent and its top mantissa bits, so it equals fp32's top 16 bits.">
+        <!-- shared styles -->
+        <style>
+          .fld { stroke-width: 1; }
+          .sgn { fill: var(--text-mute); fill-opacity: .30; stroke: var(--text-mute); }
+          .exp { fill: var(--ember);     fill-opacity: .28; stroke: var(--ember); }
+          .man { fill: var(--ds4);       fill-opacity: .24; stroke: var(--ds4); }
+          .rlab { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .flab { font-family: var(--mono); font-size: 11px; fill: var(--text-dim); }
+          .note { font-family: var(--mono); font-size: 11px; fill: var(--text-mute); }
+          .cut  { stroke: var(--dusk); stroke-width: 1.5; stroke-dasharray: 4 3; }
+        </style>
+
+        <!-- fp32: sign(1) exp(8) mant(23) ; unit 18px, x0=72 -->
+        <text x="64" y="49" text-anchor="end" class="rlab">fp32</text>
+        <rect class="fld sgn" x="72"  y="26" width="18"  height="38"/>
+        <rect class="fld exp" x="90"  y="26" width="144" height="38"/>
+        <rect class="fld man" x="234" y="26" width="414" height="38"/>
+        <text x="81"  y="50" text-anchor="middle" class="flab">S</text>
+        <text x="162" y="50" text-anchor="middle" class="flab">exponent · 8</text>
+        <text x="441" y="50" text-anchor="middle" class="flab">mantissa · 23</text>
+
+        <!-- fp16: sign(1) exp(5) mant(10) -->
+        <text x="64" y="115" text-anchor="end" class="rlab">fp16</text>
+        <rect class="fld sgn" x="72"  y="92" width="18"  height="38"/>
+        <rect class="fld exp" x="90"  y="92" width="90"  height="38"/>
+        <rect class="fld man" x="180" y="92" width="180" height="38"/>
+        <text x="81"  y="116" text-anchor="middle" class="flab">S</text>
+        <text x="135" y="116" text-anchor="middle" class="flab">exp · 5</text>
+        <text x="270" y="116" text-anchor="middle" class="flab">mantissa · 10</text>
+
+        <!-- bf16: sign(1) exp(8) mant(7) — ends at x=360 = fp32's first 16 bits -->
+        <text x="64" y="181" text-anchor="end" class="rlab">bf16</text>
+        <rect class="fld sgn" x="72"  y="158" width="18"  height="38"/>
+        <rect class="fld exp" x="90"  y="158" width="144" height="38"/>
+        <rect class="fld man" x="234" y="158" width="126" height="38"/>
+        <text x="81"  y="182" text-anchor="middle" class="flab">S</text>
+        <text x="162" y="182" text-anchor="middle" class="flab">exponent · 8</text>
+        <text x="297" y="182" text-anchor="middle" class="flab">mant · 7</text>
+
+        <!-- the "top 16 bits" cut on fp32, dropped down to bf16 -->
+        <line class="cut" x1="360" y1="20" x2="360" y2="200"/>
+        <text x="366" y="16" class="note">← fp32's top 16 bits = bf16</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--text-mute)"></i> sign</span>
+        <span><i style="background:var(--ember)"></i> exponent → <em>range</em></span>
+        <span><i style="background:var(--ds4)"></i> mantissa → <em>precision</em></span>
+      </div>
+      <figcaption>bf16 and fp32 share the same sign and the same 8-bit exponent; bf16 just
+        stops after 7 mantissa bits — exactly fp32's top 16 bits.</figcaption>
+    </figure>
+
+    <p class="prose">The revealing comparison is <strong>bf16 vs fp16</strong> — both 16 bits,
+      but bf16 spends them on the <em>exponent</em> and fp16 on the <em>mantissa</em>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>format</th><th>bits</th><th>exponent</th><th>mantissa</th><th>range</th><th>precision</th></tr></thead>
+        <tbody>
+          <tr><td><code>fp32</code></td><td>32</td><td>8</td><td>23</td><td>huge</td><td>high</td></tr>
+          <tr><td><code>fp16</code></td><td>16</td><td><strong>5</strong></td><td><strong>10</strong></td><td>small</td><td>higher of the two</td></tr>
+          <tr><td><code>bf16</code></td><td>16</td><td><strong>8</strong></td><td><strong>7</strong></td><td><strong>= fp32</strong></td><td>lower</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose"><strong>bf16 keeps fp32's exponent and sacrifices mantissa</strong>, so it
+      covers the <em>same dynamic range</em> as fp32 (≈ 10<sup>±38</sup>) — just represented
+      more coarsely (7 fraction bits ≈ 2–3 decimal digits). fp16, with only 5 exponent bits,
+      tops out near 65504 and underflows early — which is why fp16 training/inference famously
+      needs loss-scaling gymnastics. <strong>bf16 trades precision for range, and for neural
+      nets range is what keeps you numerically safe.</strong> That's why modern weights ship
+      as bf16.</p>
+  </div>
+</section>
+
+<!-- ============================== THE SHIFT ============================== -->
+<section id="widen">
+  <div class="container">
+    <p class="eyebrow">The punchline</p>
+    <h2>Widening bf16 → f32 is a 16-bit shift</h2>
+    <p class="prose">Because bf16 <em>is</em> fp32's top 16 bits, going the other way just puts
+      those bits back in the high half and zero-fills the low half:</p>
+    <pre><code>pub fn bf16_to_f32(bytes: [u8; 2]) -&gt; f32 {
+    f32::from_bits((u16::from_le_bytes(bytes) as u32) &lt;&lt; 16)
+}</code></pre>
+    <p class="prose">No lookup table, no branch, no special-casing — and it's <strong>exact for
+      every bf16 value</strong>: normals, subnormals, and <code>inf</code>/<code>NaN</code> all
+      round-trip, because we never touch the sign or exponent, only re-seat the mantissa in a
+      wider field. Rounding only enters the <em>other</em> direction (fp32 → bf16), which we
+      never do here.</p>
+    <div class="callout prose">
+      <strong>Contrast with M5's quantization.</strong> A <code>Q4_K</code> weight is
+      <em>not</em> a float you can shift into place — it's a 4-bit index into a block that
+      shares a scale, and decoding it is real arithmetic. <strong>bf16 → f32 is free; dequant
+      is not.</strong> Keep the two mentally separate.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== LAZY ============================== -->
+<section id="lazy">
+  <div class="container">
+    <p class="eyebrow">The M1 decision</p>
+    <h2>Why M1 keeps the bytes raw</h2>
+    <p class="prose">We <em>have</em> <code>bf16_to_f32</code>, but M1 <strong>never calls it.</strong>
+      Here's the arithmetic that forces the choice:</p>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Raw bf16 (what we do)</h3>
+        <p class="stat">~1.4 GB</p>
+        <p class="prose" style="margin:0">2 bytes / weight, mapped straight from the file.
+          Tensors stay <code>&amp;[u8]</code> slices into the mmap — zero-copy.</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Eager f32 (what we avoid)</h3>
+        <p class="stat">~2.8 GB</p>
+        <p class="prose" style="margin:0">4 bytes / weight. Converting up front
+          <strong>doubles</strong> resident memory and copies every weight — undoing exactly
+          what mmap bought us.</p>
+      </div>
+    </div>
+    <p class="prose">So in M1: tensors stay <strong>raw bf16 bytes</strong>; our checksums run
+      over those <strong>raw bytes</strong> (proving we read the right region of the file, not
+      that we can do float math); and <code>bf16_to_f32</code> is written and unit-tested but
+      <strong>first <em>called</em> at M2</strong>, one value at a time, only for the weights a
+      given matmul actually touches.</p>
+    <p class="prose">This is <strong>“learning-first, then fast”</strong> in miniature: the
+      correct, clear thing is to convert at the point of use. Converting eagerly would be a
+      premature — and memory-doubling — optimization in the wrong direction.</p>
+    <div class="callout">
+      <strong>Mental model.</strong> bf16 = fp32 with a haircut: same range, coarser steps, half
+      the bytes. To widen, shift it back into fp32's high half — free and exact. To
+      <em>narrow</em> (which we don't), you'd round — and rounding is where number formats get
+      interesting. Quantization (M5) is a different animal: the bytes need <em>decoding</em>,
+      not shifting.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./01-safetensors-vs-gguf.html">Learning 01 · safetensors vs GGUF</a> —
+          where the <code>BF16</code> dtype string comes from; “the bytes <em>are</em> the numbers.”</li>
+        <li><a href="./06-mmap.html">Learning 06 · mmap</a> — why we keep the bytes raw in the
+          mapping instead of materializing f32 (the memory-doubling this note quantifies).</li>
+        <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — the shapes
+          those bf16 bytes fill; dtype and shape together give each tensor's byte length.</li>
+        <li>Learning 08 · row-major &amp; strides — <em>stub, arrives at M2</em>: the
+          2-bytes-per-element the strides step over. Source:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/08-row-major-strides.md"><code>08-row-major-strides.md</code></a>.</li>
+        <li>🔧 <code>src/safetensors.rs</code> — <code>Dtype</code>, <code>bf16_to_f32</code>,
+          and the raw-byte checksum path. · Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/07-bf16.md"><code>docs/learnings/07-bf16.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/07-bf16.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learnings — Failed Star</title>
+<meta name="description" content="Bite-sized notes on things we figured out building Failed Star — the why behind each decision, each cross-linked to the book, ds4, and Raschka.">
+
+<!-- Sync ledger: this index distills the learnings README. -->
+<meta name="fs-distills" content="docs/learnings/README.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">The why behind the build</p>
+    <h2>Learnings</h2>
+    <p class="lead">Bite-sized notes on things we figured out along the way — the reasoning
+      behind a decision, and background worth keeping. Each one cross-links the three sources
+      (the book, <code>ds4</code>, Raschka). They complement the milestone writeups and the
+      big-picture map.</p>
+    <div class="callout">
+      <strong>Markdown is the source of truth.</strong> These pages are hand-distilled from the
+      <code>docs/learnings/*.md</code> notes — same content, with the ASCII diagrams promoted
+      to real SVG. <code>tools/sync-check.sh</code> flags when a page drifts from its source.
+    </div>
+  </div>
+</section>
+
+<section id="notes">
+  <div class="container">
+    <p class="eyebrow">The notes so far</p>
+    <h2>Eight notes, newest ideas on top of old</h2>
+    <div class="cards">
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 01</p>
+        <h3><a href="./01-safetensors-vs-gguf.html">Model file formats: safetensors vs GGUF</a></h3>
+        <p>Where a model's weights actually live on disk. Why we parse safetensors now
+          (trivial: length + JSON + bytes) and defer GGUF to M5, when quantization is the lesson.</p>
+        <p class="when">2026-06-13 · M1 format choice</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 02</p>
+        <h3><a href="./02-radix-tree.html">Radix trees</a></h3>
+        <p>What a radix tree is — and why <code>ds4</code>'s tokenizer is actually a hash table,
+          not a trie. A data-structure detour worth taking once.</p>
+        <p class="when">2026-06-14 · M0 background</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 03</p>
+        <h3><a href="./03-bpe.html">Byte-pair encoding</a></h3>
+        <p>BPE learned once (training) vs replayed (inference), and what it means to “match a
+          model.” The heart of M0's tokenizer.</p>
+        <p class="when">2026-06-14 · M0 tokenizer</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 04</p>
+        <h3><a href="./04-embedding-models.html">Embedding model ≠ token table</a></h3>
+        <p>The three senses of “embedding,” and why an embedding <em>model</em> is a full
+          forward pass, not a lookup.</p>
+        <p class="when">2026-06-14 · concept</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 05</p>
+        <h3><a href="./05-reading-shapes.html">Reading shapes</a></h3>
+        <p>How the dimensions line up: the <code>[out, in]</code> convention, the residual
+          stream, <code>head_dim</code> decoupled from <code>hidden_size</code>, and GQA.</p>
+        <p class="when">2026-06-24 · M1 weights</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 06</p>
+        <h3><a href="./06-mmap.html">mmap (raw POSIX FFI)</a></h3>
+        <p>Turning a 1.4 GB file into memory, zero-copy — the <code>mmap</code>/<code>munmap</code>
+          FFI without a wrapper crate, contained in one RAII type.</p>
+        <p class="when">2026-06-24 · M1 weights</p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 07</p>
+        <h3><a href="./07-bf16.html">bf16</a></h3>
+        <p>The weights' number format: bf16 = fp32's top 16 bits, so widening is a free shift —
+          and why we do it lazily to avoid doubling memory.</p>
+        <p class="when">2026-07-06 · M1 weights</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">LEARNING 08 · 🌱 stub</p>
+        <h3>Row-major &amp; strides</h3>
+        <p>From a shape to a byte offset: row-major layout, strides, and indexing the tensor
+          blob. To be written at M2, when we first read a weight element-by-element.</p>
+        <p class="when">planned · M2</p>
+      </div>
+
+    </div>
+    <p class="prose" style="margin-top:1.4rem">The Markdown sources live in
+      <a href="https://github.com/curtisalexander/fs/tree/main/docs/learnings"><code>docs/learnings/</code></a>;
+      the big-picture map is <a href="../index.html">the home page</a>.</p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. Learnings are the notes; the <a href="../01-tokenizer.html">milestones</a> are
+      the build.</p>
+    <p class="meta">This page distills <code>docs/learnings/README.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

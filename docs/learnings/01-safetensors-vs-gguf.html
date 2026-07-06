@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 01 — Model file formats — Failed Star</title>
+<meta name="description" content="Where a model's weights live on disk: safetensors (plain bytes + a JSON shape table, what Qwen3 ships) vs GGUF (self-contained, quantized, what ds4 uses) — and why fs picks safetensors for M1–M4 and GGUF at M5.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/01-safetensors-vs-gguf.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 01 · where weights live on disk</p>
+    <h2>Model file formats: safetensors vs GGUF</h2>
+    <p class="note-meta"><b>Context:</b> deciding M1's on-disk format ·
+      <b>Status:</b> <span class="status-live">decided</span></p>
+    <p class="lead">This is the first thing we learned: <strong>where do a model's weights
+      actually live on disk, and in what shape?</strong> A model is, physically, two things —
+      a pile of numbers (the weights) and a description of how they're arranged (names, shapes,
+      dtypes). A <em>file format</em> is just an agreed way to write those two down. Two formats
+      dominate, built for different jobs.</p>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering · §4.2.2 “Model File Formats” (p.103)</span>
+      <span class="chip chip--ds4">🔧 ds4 · ds4.c “owns GGUF loading”, gguf-tools/</span>
+      <span class="chip chip--rasch">🧭 Raschka · “Workflow for Understanding LLMs” — working code doesn't lie</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== SAFETENSORS ============================== -->
+<section id="safetensors">
+  <div class="container">
+    <p class="eyebrow">HuggingFace's native format</p>
+    <h2>safetensors — three parts, no surprises</h2>
+    <p class="prose">This is what <strong>Qwen3-0.6B ships as</strong> on Hugging Face. It is
+      almost shockingly simple — which is exactly why it's a great first format to parse by hand.
+      The whole file is three concatenated regions:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 170" role="img"
+           aria-label="The safetensors file layout: an 8-byte little-endian u64 header length, then that many bytes of JSON header, then the raw tensor blob for the rest of the file.">
+        <style>
+          .fld { stroke-width: 1; }
+          .len { fill: var(--text-mute); fill-opacity: .30; stroke: var(--text-mute); }
+          .hdr { fill: var(--ember);     fill-opacity: .28; stroke: var(--ember); }
+          .blob{ fill: var(--ds4);       fill-opacity: .24; stroke: var(--ds4); }
+          .flab { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .slab { font-family: var(--mono); font-size: 11px; fill: var(--text-dim); }
+          .note { font-family: var(--mono); font-size: 11px; fill: var(--text-mute); }
+        </style>
+
+        <!-- three regions, drawn left to right -->
+        <rect class="fld len"  x="20"  y="46" width="120" height="52"/>
+        <rect class="fld hdr"  x="140" y="46" width="230" height="52"/>
+        <rect class="fld blob" x="370" y="46" width="310" height="52"/>
+
+        <!-- top: byte-extent labels -->
+        <text x="80"  y="38" text-anchor="middle" class="note">8 bytes</text>
+        <text x="255" y="38" text-anchor="middle" class="note">N bytes</text>
+        <text x="525" y="38" text-anchor="middle" class="note">the rest of the file</text>
+
+        <!-- in-box labels -->
+        <text x="80"  y="70" text-anchor="middle" class="flab">u64 (LE)</text>
+        <text x="80"  y="86" text-anchor="middle" class="slab">= N</text>
+        <text x="255" y="70" text-anchor="middle" class="flab">JSON header</text>
+        <text x="255" y="86" text-anchor="middle" class="slab">name → dtype·shape·offsets</text>
+        <text x="525" y="70" text-anchor="middle" class="flab">raw tensor bytes</text>
+        <text x="525" y="86" text-anchor="middle" class="slab">row-major, contiguous</text>
+
+        <!-- pointer: N drives the header length -->
+        <text x="80"  y="124" text-anchor="middle" class="note">length of →</text>
+        <line x1="118" y1="120" x2="150" y2="104" stroke="var(--text-mute)" stroke-width="1"/>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--text-mute)"></i> header length</span>
+        <span><i style="background:var(--ember)"></i> JSON header → the shape table</span>
+        <span><i style="background:var(--ds4)"></i> raw tensor blob → the numbers</span>
+      </div>
+      <figcaption>The entire format: an 8-byte little-endian <code>u64</code> length, then that
+        many bytes of JSON describing every tensor, then one contiguous blob of raw bytes.</figcaption>
+    </figure>
+
+    <ol class="prose">
+      <li><strong>First 8 bytes:</strong> a little-endian <code>u64</code> giving the length
+        <code>N</code> of the header.</li>
+      <li><strong>Next <code>N</code> bytes:</strong> a UTF-8 <strong>JSON object</strong>. Each key
+        is a tensor name; each value is
+        <code>{ "dtype": …, "shape": […], "data_offsets": [start, end] }</code>.
+        (An optional <code>__metadata__</code> key holds arbitrary string key/values.)</li>
+      <li><strong>Everything after:</strong> one contiguous blob of raw tensor data. Each tensor
+        lives at <code>[start, end)</code> <em>within that blob</em>, row-major (C-contiguous).</li>
+    </ol>
+
+    <p class="prose">That's the entire format. The properties that matter to us:</p>
+    <div class="cards">
+      <div class="card">
+        <h3>Weights in original dtype</h3>
+        <p>Qwen3 is <strong>bf16</strong> — no quantization, no decoding scheme: the bytes
+          <em>are</em> the numbers. We convert bf16→f32 when we compute; that's trivial.</p>
+      </div>
+      <div class="card">
+        <h3>It is “safe”</h3>
+        <p>Unlike Python <code>pickle</code>/<code>.bin</code> checkpoints there's no embedded
+          code to execute — just data. Hence the name.</p>
+      </div>
+      <div class="card">
+        <h3>Zero-copy / mmap-friendly</h3>
+        <p>Map the file and point tensors straight at the bytes. (<code>ds4</code> mmaps too;
+          the idea is the same.)</p>
+      </div>
+      <div class="card">
+        <h3>No tokenizer or config</h3>
+        <p>Those live in sibling files: <code>config.json</code> (layers, dims, heads, vocab)
+          and <code>tokenizer.json</code> (vocab + merges, our M0). We need those anyway.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== GGUF ============================== -->
+<section id="gguf">
+  <div class="container">
+    <p class="eyebrow">llama.cpp's format · what ds4 uses</p>
+    <h2>GGUF — one self-contained file</h2>
+    <p class="prose">GGUF is built for <em>local inference distribution</em>: get a model running
+      from <strong>one self-contained file</strong>. It carries everything — weights, tokenizer,
+      config, chat template. Its layout is a stack of sections rather than three flat regions:</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>section</th><th>what it holds</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>header</code></td>
+            <td>magic <code>"GGUF"</code> (<code>0x46554747</code>) · version (<code>u32</code>)
+              · <code>n_tensors</code> · <code>n_metadata_kv</code></td>
+          </tr>
+          <tr>
+            <td><code>metadata</code> (key/value)</td>
+            <td><code>general.architecture</code>, hyperparameters, <strong>and the full
+              tokenizer/vocab</strong>, chat template, etc. (~13 typed value kinds, arrays supported)</td>
+          </tr>
+          <tr>
+            <td><code>tensor info</code></td>
+            <td>per tensor: name · <code>n_dims</code> · <code>dims[]</code> ·
+              <code>ggml_type</code> (quant kind) · offset</td>
+          </tr>
+          <tr>
+            <td><code>padding</code></td>
+            <td>pad to alignment</td>
+          </tr>
+          <tr>
+            <td><code>tensor data</code></td>
+            <td>quantized blocks (<code>Q4_K</code>, <code>Q2_K</code>, <code>IQ2_XXS</code>, …)
+              or <code>f16</code>/<code>f32</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="prose">The key differences from safetensors:</p>
+    <div class="cards">
+      <div class="card">
+        <h3>One file holds it all</h3>
+        <p>Weights <em>and</em> tokenizer <em>and</em> config <em>and</em> chat template.
+          Download one <code>.gguf</code>, run.</p>
+      </div>
+      <div class="card">
+        <h3>Quantization is native</h3>
+        <p>Tensors aren't plain arrays; they're <strong>block quant formats</strong> — a block
+          of N weights shares a scale (sometimes a min / secondary scale), packed into far fewer
+          bits. <code>Q4_K</code> ≈ 4 bits/weight; <code>Q2_K</code>/<code>IQ2_XXS</code> ≈ 2.
+          This is <em>the</em> reason a huge model fits a laptop — a whole topic of its own (our M5).</p>
+      </div>
+      <div class="card">
+        <h3>More complex to parse</h3>
+        <p>A binary key/value metadata section with many value types, plus the per-format block
+          layouts you must decode to get real numbers.</p>
+      </div>
+    </div>
+
+    <div class="callout prose">
+      <strong>Evidence: <code>ds4</code> is GGUF, end to end.</strong>
+      <ul style="margin:.5rem 0 0">
+        <li><code>ds4.c:5</code> — <em>“This file is deliberately vertical: it owns GGUF loading…”</em></li>
+        <li><code>ds4.c:11</code> — <em>“Loading is mmap based. The loader parses only the GGUF
+          header, metadata…”</em></li>
+        <li><code>ds4.c:579</code> — <code>#define DS4_GGUF_MAGIC 0x46554747u</code> <em>/* "GGUF", little endian. */</em></li>
+        <li><code>ds4.c:1514</code> — the <code>GGUF_VALUE_*</code> type enum (UINT8…FLOAT32…).</li>
+        <li><code>download_model.sh</code> pulls only <code>*.gguf</code>; <code>gguf-tools/</code>
+          builds/quantizes GGUF.</li>
+      </ul>
+      So <code>ds4</code> has <strong>no safetensors path at all</strong> — it's a GGUF engine.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== TRADEOFF ============================== -->
+<section id="tradeoff">
+  <div class="container">
+    <p class="eyebrow">The tradeoff, for our goals</p>
+    <h2>safetensors vs GGUF, side by side</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>safetensors</th><th>GGUF</th></tr></thead>
+        <tbody>
+          <tr><td>Qwen3-0.6B ships it?</td><td>✅ natively</td><td>❌ needs conversion (llama.cpp)</td></tr>
+          <tr><td>Parse-from-scratch effort</td><td>trivial (len + JSON + bytes)</td><td>meatier (binary KV + quant blocks)</td></tr>
+          <tr><td>Weights for a first forward pass</td><td>clean bf16, no decoding</td><td>fine if f16, but quant blocks loom</td></tr>
+          <tr><td>Includes tokenizer/config?</td><td>❌ (sibling files)</td><td>✅ (all in one)</td></tr>
+          <tr><td>Quantization</td><td>none (add later)</td><td>native, the whole point</td></tr>
+          <tr><td>Matches <code>ds4</code> directly</td><td>❌</td><td>✅</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== DECISION ============================== -->
+<section id="decision">
+  <div class="container">
+    <p class="eyebrow">Our decision (and why)</p>
+    <h2>safetensors for M1–M4, then GGUF at M5</h2>
+    <p class="prose">The reasoning is <strong>sequencing complexity to the milestone that needs
+      it</strong>:</p>
+    <div class="cards">
+      <div class="card card--teach">
+        <h3>M1 · weights are bytes + a shape table</h3>
+        <p>safetensors makes that idea visceral in an afternoon, and Qwen ships it natively — so
+          there's <em>no tooling detour</em> before we've loaded a single tensor.</p>
+      </div>
+      <div class="card card--helpful">
+        <h3>M2–M4 · stay clean</h3>
+        <p>Real bf16 weights mean our first-ever forward pass isn't <em>also</em> fighting
+          dequantization math while we hunt numerical bugs against the golden vector.</p>
+      </div>
+      <div class="card card--floor">
+        <h3>M5 · quantization becomes the lesson</h3>
+        <p>GGUF <em>is</em> a quantization format. Writing the GGUF loader there, side by side
+          with <code>ds4</code>'s parser and <code>gguf-tools/</code>, is the richest version of
+          that comparison.</p>
+      </div>
+    </div>
+    <div class="callout prose">
+      <strong>Two formats = two distinct lessons</strong> — “load raw tensors” vs “load quantized
+      tensors” — not wasted work. We stay honest with <code>ds4</code> the whole time: it's
+      GGUF-only; we converge with it at M5.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== MENTAL MODEL ============================== -->
+<section id="model">
+  <div class="container prose">
+    <p class="eyebrow">Mental model to keep</p>
+    <h2>Numbers + a table describing the numbers</h2>
+    <div class="callout">
+      <p style="margin:0">A model on disk = <strong>(numbers) + (a table describing the numbers)</strong>.</p>
+      <ul style="margin:.5rem 0 0">
+        <li><strong>safetensors</strong> writes the numbers <em>plainly</em>. Simple; the bytes
+          are the values.</li>
+        <li><strong>GGUF</strong> writes the numbers <em>compressed</em> (quantized) and bundles
+          the tokenizer and config alongside. Self-contained; the bytes need <em>decoding</em>
+          to become values.</li>
+      </ul>
+    </div>
+    <p class="prose">The leap from the first to the second — “the bytes need decoding” — is the
+      door into quantization, which is most of what makes local inference <em>possible</em>. We
+      walk through that door deliberately at M5.</p>
+
+    <p class="eyebrow">To revisit at M5</p>
+    <ul>
+      <li>Decode at least <code>Q4_K</code> and a 2-bit format (<code>Q2_K</code> /
+        <code>IQ2_XXS</code>) by hand; compare block layouts against
+        <code>gguf-tools/quants.c</code> and <code>ds4.c</code>'s block format section
+        (around <code>ds4.c:312</code>).</li>
+      <li>Measure: memory + decode tok/s + quality (perplexity) vs our bf16 baseline.</li>
+      <li>📖 then-relevant reading: §5.1 “Quantization” (p.120).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./07-bf16.html">Learning 07 · bf16</a> — the dtype Qwen3's safetensors bytes
+          are in; “the bytes <em>are</em> the numbers,” made precise.</li>
+        <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — how the JSON
+          header's <code>shape</code> and <code>data_offsets</code> map to real tensors.</li>
+        <li><a href="./06-mmap.html">Learning 06 · mmap</a> — the zero-copy mapping that makes
+          “point tensors straight at the bytes” real.</li>
+        <li>🔧 <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a> — the M1
+          safetensors loader this note motivates.</li>
+        <li>🔧 <code>ds4</code> — the GGUF-only reference engine we converge with at M5.</li>
+        <li>Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/01-safetensors-vs-gguf.md"><code>docs/learnings/01-safetensors-vs-gguf.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/01-safetensors-vs-gguf.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

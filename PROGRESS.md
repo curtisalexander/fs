@@ -6,7 +6,61 @@
 
 **Current milestone:** M1 — Load the weights (◐ scaffolding). Design locked this session: mmap via raw FFI, lazy bf16 (raw bytes, convert on access), and a shape-first `fs inspect` that cross-checks the tensor set against `config.json`. M0 — Tokenizer is ✅ complete (all four stages + special tokens, **14/14 golden cases pass**, CLI runs, single-file `tokenizer.json` source).
 **Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B. The tokenizer loads everything from the single `tokenizer.json` (vocab + merges + regex + special tokens) in `src/tokenizer.rs` (`build_byte_encoder`, `build_vocab`/`build_merges`, `extract_pattern`, `build_special_tokens`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, special-token carving, and the wired `load`/`encode`/`decode`). 17 unit + 2 golden integration tests green; no warnings, clippy clean. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`).
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings now have their own section** (`docs/learnings/index.html` + a page per note, in the site nav) — the owed HTML-graduation debt for `learnings/01–07` is **cleared**.
+
+---
+
+## Session 9 — 2026-07-06 — M1 teaching prep: bf16 note + graduate all Learnings to HTML
+
+**Did:** closed the pre-coding teaching gaps before touching M1 engine code, then
+paid off the whole Learnings-→-site debt in one batch.
+
+**New learning notes (Markdown):**
+- `docs/learnings/07-bf16.md` — the weights' number format. bf16 = fp32's top 16
+  bits (same 8-bit exponent, 7-bit mantissa), so widening is a free/exact 16-bit
+  shift; quantifies the "lazy bf16" decision (eager convert = 1.4 GB → ~2.8 GB) and
+  separates bf16 (shift) from M5 quantization (decode). Answers the "why defer
+  conversion?" question `fs inspect`'s `dtype BF16` output will raise.
+- `docs/learnings/08-row-major-strides.md` — **stub** (🌱), deliberately deferred to
+  M2: shape→byte-offset, row-major layout, strides, indexing the blob. Placeholder
+  so the teaching moment isn't missed when M2 first reads a weight element-by-element
+  (embedding gather → matmul). Both indexed in `learnings/README.md`.
+
+**Learnings graduated to HTML (the owed debt, done):**
+- Decision (asked + locked): **hand-distill each note to bespoke HTML** (policy =
+  "distillation, not conversion"), upgrading ASCII diagrams to real theme-aware SVG.
+- Built the **Learnings site section**: `docs/learnings/index.html` (card grid) +
+  a "Learnings" entry in the nav on all pages (index/prerequisites/diagrams/
+  01-tokenizer + every note). Added a small Learnings CSS block to `main.css`
+  (`.note-meta`, `.figure`/`.legend`, `.crosslinks`, `.learn-card`) — no new
+  framework, tokens reused.
+- Distilled **01–07** to HTML (`07-bf16.html` hand-authored as the canonical
+  template with an SVG bit-field diagram; 01–06 fanned out to parallel subagents
+  against that template + strict class whitelist, then QA'd). SVGs rendered:
+  01 safetensors layout · 02 radix tree · 04 embedding forward-pass · 05 **four**
+  (`[out,in]` conv, residual bus, head split, GQA) · 06 read-vs-mmap flow · 07
+  bf16 fields. 03 used tables/splits (better fit than SVG).
+- Wired links: milestone page now links `learnings/03-bpe.html` (was `.md`); each
+  note's cross-links point at sibling `.html`; registered all pages in
+  `tools/sync-ledger.tsv`.
+- **QA:** tag balance (section/div/svg) all matched across 8 pages; no page-level
+  `<style>` (only SVG-internal); every internal `.html` link resolves site-wide;
+  `sync-check.sh` reports **in sync**.
+
+**Decisions resolved this session:**
+- **bf16 documented now, not at M2** — it grounds M1's "lazy bf16" decision. ✅
+- **row-major/strides deferred to M2** as a stub — it's an *indexing* lesson that
+  belongs with the matmul, not the load. ✅
+- **Learnings = hand-distilled HTML** (not md→HTML auto-gen), matching the hero
+  pages' "distillation not conversion" model. ✅
+
+**Note:** ledger rows stamped at HEAD `99b6640`; on the commit that lands this
+batch, run `tools/sync-check.sh --update` to re-stamp to the new commit.
+
+**Next (unchanged):** M1 engine code, bottom-up from `Mmap::open` (the raw POSIX
+FFI) → `SafeTensors::load` → `Config::load` → `expected_tensors`/`cross_check` →
+`render_*`, verified against the real `model.safetensors`. Then `docs/02-weights.md`
+(+ graduate `learnings/08` when M2 writes it).
 
 ---
 

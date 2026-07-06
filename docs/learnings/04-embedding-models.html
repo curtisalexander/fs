@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 04 — Embedding models — Failed Star</title>
+<meta name="description" content="Why an “embedding model” is a full forward pass plus pooling — not a row-read out of an LLM's token-embedding table — and the three different things the word “embedding” names.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/04-embedding-models.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 04 · what “embedding” actually names</p>
+    <h2>“Embedding model” ≠ the token-embedding table</h2>
+    <p class="note-meta"><b>Context:</b> untangling what “embeddings” means ·
+      <b>Status:</b> <span class="status-stub">background</span> — not on our inference path,
+      but a common confusion worth pinning down</p>
+    <p class="lead">The word <strong>“embedding”</strong> gets attached to at least three
+      different things. The confusion that matters: <em>“when I use an embedding model for
+      search/RAG, am I just reading rows out of the learned table inside an LLM?”</em>
+      Short answer — <strong>no.</strong> This note pins down why.</p>
+    <div class="callout">
+      <strong>This is background.</strong> Our engine only ever uses sense #1 below — the input
+      lookup table (studied at M2). Embedding models (sense #3) are a separate kind of model we
+      are <strong>not</strong> building. Knowing the difference just keeps the vocabulary straight.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering · §2.1 — token embeddings as the input layer</span>
+      <span class="chip chip--ds4">🔧 ds4 · <code>token_embd.weight</code> (ds4.c:3033), gathered by <code>metal/get_rows.metal</code></span>
+      <span class="chip chip--rasch">🧭 Lineage · word2vec/GloVe → sentence-transformers / BGE / E5 / <code>text-embedding-3</code></span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THREE SENSES ============================== -->
+<section id="three">
+  <div class="container">
+    <p class="eyebrow">One word, three referents</p>
+    <h2>Three things called “embedding”</h2>
+    <p class="prose">Drawn apart, the three are easy to keep straight — the split that matters is
+      <strong>lookup vs activation vs output</strong>, and <strong>context-free vs
+      context-aware</strong>:</p>
+    <div class="cards">
+      <div class="card card--floor">
+        <h3>1 · Token embeddings — the lookup table</h3>
+        <p>Shape <code>[vocab, d_model]</code>, one vector per <em>token</em>. A <strong>static
+          lookup</strong>: token <code>15339</code> → row <code>15339</code>, the <em>same vector
+          every time</em>, regardless of neighbors — <strong>context-free</strong>. It is the
+          network's <strong>input layer</strong>. <em>The only sense our engine uses.</em></p>
+      </div>
+      <div class="card card--helpful">
+        <h3>2 · Contextual embeddings — the hidden states</h3>
+        <p>The vectors <em>between</em> layers, after attention has mixed in surrounding context.
+          <strong>Context-dependent:</strong> “bank” gets a different vector in “river bank” vs
+          “bank account.” They are <strong>activations</strong> computed by a forward pass — not
+          stored anywhere.</p>
+      </div>
+      <div class="card card--teach">
+        <h3>3 · Text / sentence embeddings — the model's output</h3>
+        <p><strong>One</strong> fixed-size vector for an <em>entire</em> sentence or document —
+          for semantic search, RAG, clustering, dedup. It is the <strong>output</strong> of running
+          text through a whole network and then <strong>pooling</strong>.</p>
+      </div>
+    </div>
+    <p class="prose">When you call an “embedding model” (<code>text-embedding-3</code>, BGE, E5,
+      <code>sentence-transformers</code>, …) you get <strong>#3</strong> — not the table from #1.</p>
+  </div>
+</section>
+
+<!-- ============================== FORWARD PASS ============================== -->
+<section id="forward">
+  <div class="container">
+    <p class="eyebrow">Not a lookup — a forward pass</p>
+    <h2>What an embedding model actually does</h2>
+    <p class="prose">For each input text it runs a <strong>full forward pass</strong>. The learned
+      token table <em>is</em> in there — it's the front door — but the vector you receive is the
+      product of the <em>entire network</em>, squashed into one:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 720 232" role="img"
+           aria-label="Top: a bare token-id indexing one row of the embedding table (sense 1). Bottom: input text running through tokenize, table lookup, transformer layers, pooling and normalize into one sentence vector (sense 3).">
+        <style>
+          .box   { fill: var(--ds4); fill-opacity: .14; stroke: var(--ds4); stroke-width: 1; }
+          .boxe  { fill: var(--ember); fill-opacity: .16; stroke: var(--ember); stroke-width: 1; }
+          .out   { fill: var(--ember); fill-opacity: .30; stroke: var(--ember); stroke-width: 1.5; }
+          .lab   { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+          .sub   { font-family: var(--mono); font-size: 10.5px; fill: var(--text-dim); }
+          .note  { font-family: var(--mono); font-size: 11px; fill: var(--text-mute); }
+          .arr   { stroke: var(--text-mute); stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+        </style>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+
+        <!-- SENSE 1: bare lookup -->
+        <text x="16" y="24" class="note">sense #1 — a lookup (context-free)</text>
+        <rect class="boxe" x="16"  y="34" width="96"  height="34" rx="4"/>
+        <text x="64" y="55" text-anchor="middle" class="lab">token 15339</text>
+        <path class="arr" d="M116 51 H172"/>
+        <rect class="box" x="176" y="34" width="150" height="34" rx="4"/>
+        <text x="251" y="49" text-anchor="middle" class="lab">row 15339</text>
+        <text x="251" y="63" text-anchor="middle" class="sub">of [vocab, d_model]</text>
+        <text x="342" y="55" class="note">same vector every time</text>
+
+        <!-- SENSE 3: forward pass -->
+        <text x="16" y="112" class="note">sense #3 — a forward pass + pooling (context-aware)</text>
+        <rect class="boxe" x="16"  y="124" width="82"  height="34" rx="4"/>
+        <text x="57"  y="145" text-anchor="middle" class="lab">text</text>
+        <path class="arr" d="M100 141 H130"/>
+        <rect class="box" x="132" y="124" width="90"  height="34" rx="4"/>
+        <text x="177" y="141" text-anchor="middle" class="lab">tokenize</text>
+        <text x="177" y="153" text-anchor="middle" class="sub">+ table gather</text>
+        <path class="arr" d="M224 141 H252"/>
+        <rect class="box" x="254" y="124" width="122" height="34" rx="4"/>
+        <text x="315" y="141" text-anchor="middle" class="lab">transformer</text>
+        <text x="315" y="153" text-anchor="middle" class="sub">attention mixes ctx</text>
+        <path class="arr" d="M378 141 H406"/>
+        <rect class="box" x="408" y="124" width="96"  height="34" rx="4"/>
+        <text x="456" y="141" text-anchor="middle" class="lab">pool</text>
+        <text x="456" y="153" text-anchor="middle" class="sub">mean / CLS / last</text>
+        <path class="arr" d="M506 141 H534"/>
+        <rect class="out" x="536" y="124" width="168" height="34" rx="4"/>
+        <text x="620" y="141" text-anchor="middle" class="lab">one vector (#3)</text>
+        <text x="620" y="153" text-anchor="middle" class="sub">+ L2-normalize</text>
+
+        <!-- bracket: the lookup is merely the input layer here -->
+        <path d="M132 168 V176 H222 V168" fill="none" stroke="var(--text-mute)" stroke-width="1"/>
+        <text x="177" y="192" text-anchor="middle" class="note">the #1 lookup, as the INPUT layer</text>
+        <text x="16" y="220" class="sub">meaning comes from the whole forward pass — not from the raw input rows.</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ember)"></i> input / output</span>
+        <span><i style="background:var(--ds4)"></i> stages of the network</span>
+      </div>
+      <figcaption>The token table is the front door of the embedding model — not the room you
+        walk out with.</figcaption>
+    </figure>
+
+    <p class="prose">Two more things distinguish a real embedding model from a raw LLM's table:</p>
+    <div class="cards">
+      <div class="card">
+        <h3>Different training objective</h3>
+        <p>A generative LLM trains on <strong>next-token prediction</strong>. An embedding model is
+          trained with a <strong>contrastive</strong> objective (InfoNCE / cosine loss): shown
+          (query, relevant doc, irrelevant doc), it pushes relevant vectors <em>together</em> and
+          irrelevant ones <em>apart</em>. That is what makes its output geometry good for cosine
+          comparison — a raw LLM's token rows are <strong>not</strong>, off the shelf.</p>
+      </div>
+      <div class="card">
+        <h3>Often a different architecture</h3>
+        <p>Many embedding models are smaller, <strong>encoder-only / bidirectional</strong>
+          (BERT-style), specialized for this job — not decoder LLMs at all.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== WORD2VEC ============================== -->
+<section id="lineage">
+  <div class="container">
+    <p class="eyebrow">Where the “pull the table out” intuition <em>is</em> right</p>
+    <h2>That intuition describes the previous generation</h2>
+    <p class="prose">“Train a net, throw it away, keep the table” perfectly describes
+      <strong>word2vec and GloVe</strong> (~2013). Their <em>entire output was a static
+      word→vector table</em>: train a shallow net on a context-prediction task, discard the net,
+      keep the table. A lookup was a pure table read — context-free, exactly sense #1. Modern
+      sentence-embedding models replaced that because the static table has hard limits:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>word2vec / GloVe (old)</th><th>embedding model (modern)</th></tr></thead>
+        <tbody>
+          <tr><td>What you use</td><td>the <strong>table</strong> itself (a lookup)</td><td>the <strong>output</strong> of a forward pass</td></tr>
+          <tr><td>Context-aware?</td><td>No — one vector per word, forever</td><td>Yes — same word, different vector by context</td></tr>
+          <tr><td>Word order</td><td>ignored</td><td>captured (attention)</td></tr>
+          <tr><td>Granularity</td><td>per word</td><td>per sentence / document</td></tr>
+          <tr><td>Trained for</td><td>predicting nearby words</td><td><strong>similarity</strong> (contrastive)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout prose">
+      <strong>Practical upshot.</strong> You <em>could</em> build a cheap text embedding by
+      <strong>averaging the token-embedding rows</strong> of a sentence (a “bag of embeddings”) —
+      people did exactly that with word2vec. It's a weak baseline: it discards word order and
+      context (“dog bites man” = “man bites dog”). Modern models win because they run the full
+      contextual network and are trained for similarity.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== MENTAL MODEL ============================== -->
+<section id="mental">
+  <div class="container">
+    <p class="eyebrow">The one to keep</p>
+    <h2>Mental model</h2>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Token embedding</h3>
+        <p class="prose" style="margin:0">A <strong>lookup</strong> in the model's input table;
+          context-free; one per token; it's the <strong>input</strong>.
+          <em>The only sense our inference engine touches.</em></p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Embedding model</h3>
+        <p class="prose" style="margin:0">A <strong>forward pass + pooling</strong> over a separate,
+          similarity-trained network; context-aware; one per text; it's the <strong>output</strong>.</p>
+      </div>
+    </div>
+    <div class="callout">
+      Using an embedding model means <strong>running a neural network over your text and pooling its
+      output</strong> — not reading rows from the token table we study at M2. That table is merely
+      the first layer of the machine doing the work.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./03-bpe.html">Learning 03 · BPE</a> — tokens, the thing being embedded;
+          sense #1 turns those token ids into rows.</li>
+        <li>🗺️ <a href="https://github.com/curtisalexander/fs/blob/main/docs/00-map.md">Stage B in the map</a>
+          — where the token-embedding table sits on our inference path (M2).</li>
+        <li>🔧 <code>ds4</code> · <a href="https://github.com/curtisalexander/fs"><code>token_embd.weight</code></a>
+          gathered by <code>metal/get_rows.metal</code> — the lookup, sense #1, in a real engine.</li>
+        <li>📖 Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/04-embedding-models.md"><code>docs/learnings/04-embedding-models.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a> (background); the sense our
+      engine uses is the input lookup studied at <strong>M2</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/04-embedding-models.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

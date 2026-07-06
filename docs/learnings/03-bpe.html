@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 03 — Byte-pair encoding — Failed Star</title>
+<meta name="description" content="BPE has two phases and only one involves learning: model creators learn the merges by frequency over a corpus; our tokenizer deterministically replays those frozen merges in rank order.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/03-bpe.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 03 · learned once, replayed forever</p>
+    <h2>Byte-pair encoding: two phases, one of them learning</h2>
+    <p class="note-meta"><b>Context:</b> before building the M0 tokenizer ·
+      <b>Status:</b> <span class="status-live">understood</span></p>
+    <p class="lead">We kept saying BPE “keeps merging common adjacent pairs.” That phrase
+      hides the single most important fact about tokenizers: <strong>there are two phases, and
+      only one of them involves learning.</strong> The model creators <em>learn</em> the merges
+      from a corpus; at M0 we only <em>replay</em> their frozen rules.</p>
+    <div class="callout">
+      <strong>One-liner.</strong> <strong>Training</strong> learns merges by frequency over a
+      corpus → frozen <code>(vocab, merges)</code>. <strong>Inference</strong> replays those
+      merges in rank order. Encoding does zero learning and zero counting — it is
+      <em>deterministic table lookup.</em>
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering · §2.2 “LLM Inference Mechanics” (p.46)</span>
+      <span class="chip chip--ds4">🔧 ds4 · <code>bpe_tokenize_text</code> (~<code>ds4.c:21140</code>), <code>str_i32_table</code> vocab / merge-rank tables</span>
+      <span class="chip chip--rasch">🧭 Raschka · “Build a Large Language Model (From Scratch)” — clean BPE walkthrough</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE TWO PHASES ============================== -->
+<section id="phases">
+  <div class="container">
+    <p class="eyebrow">The whole idea</p>
+    <h2>The two phases</h2>
+    <p class="prose">Frequency-driven merging happens <strong>once</strong>, upstream, when the
+      model is built. What ships with the model is two static artifacts — a <strong>vocab</strong>
+      (token string → id) and an <strong>ordered merges list</strong> (the rules,
+      <em>in the order they were learned</em>; order = frequency rank, and rank is everything).
+      Our tokenizer never re-derives them.</p>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Phase 1 — Training <span style="font-weight:400;color:var(--text-mute)">(done once, by the model creators — the “learned” part)</span></h3>
+        <p class="prose" style="margin:.4rem 0 0">Unsupervised ML over a big corpus:</p>
+        <ol class="prose" style="margin:.4rem 0 0">
+          <li>Vocabulary starts as the <strong>256 raw bytes</strong>.</li>
+          <li>Scan the corpus, count every <strong>adjacent pair</strong> of symbols.</li>
+          <li>Merge the <strong>single most frequent pair</strong> (say <code>t</code>+<code>h</code>)
+            into a new symbol, give it the next free id, and append the rule
+            <code>("t","h") &rarr; "th"</code> to the ordered merges list.</li>
+          <li>Repeat — re-count (the new symbol can now participate), merge the next most frequent
+            pair — until the vocab hits a target size (Qwen3 &asymp; <strong>151,936</strong>).</li>
+        </ol>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Phase 2 — Encoding at inference <span style="font-weight:400;color:var(--text-mute)">(what we build at M0 — <em>not</em> learned)</span></h3>
+        <p class="prose" style="margin:.4rem 0 0">Zero learning, zero frequency counting — just
+          replay the frozen rules:</p>
+        <ol class="prose" style="margin:.4rem 0 0">
+          <li><strong>Pre-split</strong> the text into coarse chunks with a fixed regex. Merges
+            never cross a chunk boundary.</li>
+          <li>Turn each chunk into per-byte symbols: encode as <strong>UTF-8 bytes</strong>, then
+            map each byte through the byte&harr;unicode table.</li>
+          <li>Repeatedly apply the adjacent pair whose merge rule has the <strong>lowest rank</strong>
+            (earliest in the list = most frequent at training time).</li>
+          <li>Stop when no adjacent pair appears in the merges list.</li>
+        </ol>
+      </div>
+    </div>
+    <p class="prose">That is why ds4 stores a <code>merge_rank</code> <strong>hash table</strong>
+      (<code>ds4.c:20791</code>): “given this pair, what is its rule rank?” — pure exact lookup,
+      no counting. The learning already happened upstream.</p>
+
+    <h3 style="font-family:var(--serif)">A tiny replay trace — <code>"low"</code></h3>
+    <p class="prose">One chunk, printable ASCII, so its byte-level form is just <code>low</code>.
+      Each pass applies the lowest-rank merge present (ranks are illustrative):</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>pass</th><th>symbols</th><th>candidate pairs (rank)</th><th>winner</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><code>l o w</code></td><td>(l,o)=5, <strong>(o,w)=2</strong></td><td>(o,w)</td></tr>
+          <tr><td>2</td><td><code>l ow</code></td><td><strong>(l,ow)=rule</strong></td><td>(l,ow)</td></tr>
+          <tr><td>3</td><td><code>low</code></td><td>none</td><td>— stop</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Rank, not position, decides.</strong> Pass 1 fires <code>(o,w)</code> — the pair
+      in the <em>middle</em> — because rank 2 beats rank 5, even though <code>(l,o)</code> sat
+      right at the front. Left-to-right greedy would be wrong; you must pick the
+      <strong>global-minimum rank</strong>. (The M0 milestone pins the full
+      <code>hello &rarr; 14990</code> version of this as a test.)
+    </div>
+  </div>
+</section>
+
+<!-- ============================== RAW BYTES ============================== -->
+<section id="bytes">
+  <div class="container">
+    <p class="eyebrow">The encoding question</p>
+    <h2>What “raw bytes” means</h2>
+    <p class="prose">“Split into raw bytes” hides an assumption: <strong>the input is UTF-8.</strong>
+      There is no encoding-detection step. The pipeline treats the text as a UTF-8 byte sequence
+      and walks it one byte (0–255) at a time — ds4's <code>byte_encode</code>
+      (<code>ds4.c:20914</code>) iterates the input as raw <code>uint8_t</code>. In Rust this is
+      free: a <code>&amp;str</code> is <em>always</em> valid UTF-8, so <code>.as_bytes()</code> is
+      already the right bytes.</p>
+    <div class="callout">
+      <strong>UTF-8 is part of the contract with the model.</strong> Its merges were trained over
+      UTF-8 bytes. Feed the same text as Latin-1 or UTF-16 and you get different bytes → different
+      merges → wrong IDs. Not a free choice.
+    </div>
+    <p class="prose">The nice consequence: a character <em>is</em> its UTF-8 bytes, not one symbol.
+      <code>é</code> (U+00E9) enters BPE as 2 bytes, <code>中</code> as 3, an emoji as 4. Because
+      all 256 byte values are in the base vocab, <strong>anything is representable — no
+      out-of-vocabulary case, no <code>UNK</code> token.</strong> That is the whole reason
+      byte-level BPE exists.</p>
+    <p class="prose">One subtlety: you do not merge over raw <code>0x00–0xFF</code> directly. Each
+      byte is first remapped to a <em>printable</em> codepoint via the GPT-2 byte&harr;unicode
+      table (<code>gpt2_byte_to_codepoint</code>, <code>ds4.c:20896</code>): printable
+      ASCII/Latin-1 stay as-is; the ~68 awkward bytes (control chars, space, newline) map to
+      codepoints from 256 up — which is why a space shows as <code>Ġ</code> in vocab dumps. Each
+      remapped codepoint still stands for exactly one original byte; it just keeps the merge
+      symbols printable and whitespace-free.</p>
+  </div>
+</section>
+
+<!-- ============================== THE REGEX ============================== -->
+<section id="regex">
+  <div class="container">
+    <p class="eyebrow">A guard rail, not the algorithm</p>
+    <h2>The pre-tokenization regex — yes, really a regex</h2>
+    <p class="prose">Before BPE runs, the text is split into coarse chunks by a <strong>single fixed
+      regex</strong>. The classic GPT-2 pattern:</p>
+    <pre><code>'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+</code></pre>
+    <p class="prose">Read it as: contractions · <em>optional-space + letters</em> ·
+      <em>optional-space + digits</em> · <em>optional-space + punctuation</em> · <em>whitespace</em>.
+      So <code>"  hello world!"</code> pre-splits into
+      <code>["  hello", " world", "!"]</code>. Qwen uses a more elaborate cl100k/GPT-4-style
+      variant, same idea.</p>
+    <div class="callout">
+      <strong>The regex is <em>not</em> the tokenizer.</strong> It only pre-splits so the learned
+      merge loop has clean boundaries — merges never cross a chunk. Without it, BPE would learn
+      merges across word/space/punctuation boundaries (<code>"dog."</code>, <code>"the quick"</code>),
+      wasting vocab and making segmentation wildly context-dependent.
+    </div>
+    <p class="prose"><strong>Where the regex comes from depends on the model's format</strong> — and
+      either way it is part of the <strong>model's definition</strong>, not something we invent:</p>
+    <ul class="prose">
+      <li><strong>HuggingFace <code>tokenizer.json</code>:</strong> the literal regex string is in
+        the <code>pre_tokenizer</code> field. You read it out verbatim.</li>
+      <li><strong>GGUF:</strong> stores only a <em>name</em> —
+        <code>tokenizer.ggml.pre = "qwen2"</code> (or <code>"llama-bpe"</code>, <code>"gpt-2"</code>, …)
+        — <em>not</em> the pattern. The engine must already know the regex that name refers to; that
+        is why ds4 hardcodes per-model pre-tokenizers (<code>ds4.c:21121</code>).</li>
+    </ul>
+
+    <h3 style="font-family:var(--serif)">Isn't this just how a compiler tokenizes?</h3>
+    <p class="prose">Largely yes — lexical analysis is <em>the</em> textbook use of regular
+      expressions (<code>lex</code>/<code>flex</code> compile regexes to a DFA). But the parallel
+      breaks in ways worth holding onto:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Compiler lexer</th><th>LLM BPE tokenizer</th></tr></thead>
+        <tbody>
+          <tr><td>Rules are</td><td>hand-<strong>designed</strong> in the language spec</td><td><strong>learned</strong> from a corpus by frequency</td></tr>
+          <tr><td>A token is</td><td>a grammatical category (<code>IDENT</code>, <code>IF</code>, <code>+</code>) — dozens</td><td>a statistical fragment (<code>" dog"</code>, <code>"tion"</code>) — ~150k</td></tr>
+          <tr><td>The regex</td><td><strong>is</strong> the whole tokenizer</td><td>only <strong>pre-splits</strong>; a learned merge loop does the real work</td></tr>
+          <tr><td>Greedy rule</td><td>longest-match + rule priority</td><td>apply the <strong>lowest-rank merge</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">Deeper: a lexer is <strong>lossless and meaningful</strong> (every token is one
+      lexical unit the parser depends on; there is a <em>right</em> answer). BPE segmentation is
+      <strong>arbitrary</strong> — the same word tokenizes differently with a leading space, and the
+      model is fine because it trained on that messiness. Fancier schemes exist
+      (Unigram/SentencePiece uses Viterbi; WordPiece uses greedy longest-match; ByT5 drops
+      tokenization entirely). BPE's greedy-merge is one of the <em>simpler</em> methods; the regex
+      pre-tokenizer is widely seen as an inelegant-but-necessary wart.</p>
+  </div>
+</section>
+
+<!-- ============================== MATCH A MODEL ============================== -->
+<section id="match">
+  <div class="container">
+    <p class="eyebrow">Correct is relative to one model</p>
+    <h2>Making our tokenizer match a specific model</h2>
+    <p class="prose">A tokenizer is correct <strong>only relative to one model's vocab + merges</strong>.
+      “Implementing BPE” is not enough — we must reproduce <em>that model's</em> exact rules and
+      conventions. For our target (Qwen3, GPT-2-style byte-level BPE):</p>
+    <ul class="checklist">
+      <li><strong>Load the model's own vocab + merges — never invent them.</strong> From the GGUF
+        (<code>tokenizer.ggml.tokens</code>, <code>tokenizer.ggml.merges</code>) or HuggingFace
+        <code>tokenizer.json</code> — the same source the model trained with.</li>
+      <li><strong>Match the byte-level mapping.</strong> The fixed bytes&harr;unicode table (why a
+        space shows as <code>Ġ</code>). Get it exactly right or nothing lines up.</li>
+      <li><strong>Match the pre-tokenization regex.</strong> The most common source of subtle
+        mismatches — ds4 special-cases it per model. Use <strong>Qwen's</strong> pattern.</li>
+      <li><strong>Match special-token handling.</strong> <code>&lt;|im_start|&gt;</code>,
+        <code>&lt;|endoftext|&gt;</code>, etc. are inserted as whole tokens and <strong>bypass
+        BPE</strong>.</li>
+      <li><strong>Verify with round-trip + exact-ID parity.</strong> Run the official HuggingFace
+        tokenizer on a diverse set — ASCII, multilingual, emoji, code with leading whitespace, the
+        special tokens — and assert our IDs match <strong>exactly</strong>;
+        <code>encode &rarr; decode</code> must reproduce the input byte-for-byte.</li>
+    </ul>
+    <div class="callout">
+      <strong>Exact-ID parity across a diverse set <em>is</em> the definition of “works with this
+      model.”</strong> It proves the byte map, the regex, and the merge order are all right at once.
+      Treat any single ID mismatch as a bug in one of the four conventions above, not a rounding
+      detail.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== MENTAL MODEL ============================== -->
+<section id="model">
+  <div class="container">
+    <p class="eyebrow">Keep this</p>
+    <h2>Mental model &amp; the M0 shape</h2>
+    <div class="callout">
+      <strong>Training</strong> = learn merges by frequency over a corpus → frozen
+      <code>(vocab, merges)</code>. <strong>Inference</strong> = replay merges in rank order,
+      deterministic, no learning. <strong>Correct</strong> = byte-for-byte ID parity with the
+      model's <em>own</em> official tokenizer.
+    </div>
+    <p class="prose">For M0 (Rust):</p>
+    <ul class="prose">
+      <li><code>HashMap&lt;Vec&lt;u8&gt;, u32&gt;</code> for token→id, plus a pair→rank map for
+        merges (mirrors ds4's two <code>str_i32_table</code>s). No trie needed — byte-level BPE is
+        exact lookups.</li>
+      <li>Implement: byte&harr;unicode table → pre-tokenization regex → greedy lowest-rank merge
+        loop → special-token splice.</li>
+      <li>Build the parity test harness <strong>first</strong>.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./02-radix-tree.html">Learning 02 · radix tree</a> — why the tokenizer is a
+          hash table, not a trie (byte-level BPE is exact lookups).</li>
+        <li><a href="../01-tokenizer.html">Milestone M0 · the tokenizer</a> — where this note is
+          built: the <code>hello &rarr; 14990</code> worked trace, special tokens, and the
+          exact-ID parity harness.</li>
+        <li>🔧 <a href="https://github.com/curtisalexander/fs">ds4</a> —
+          <code>bpe_tokenize_text</code> (~<code>ds4.c:21140</code>), <code>bpe_emit_piece</code>,
+          the <code>str_i32_table</code> vocab / merge-rank hash tables. · Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/03-bpe.md"><code>docs/learnings/03-bpe.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M0 — the tokenizer</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/03-bpe.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

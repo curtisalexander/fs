@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 06 — mmap — Failed Star</title>
+<meta name="description" content="Why Failed Star maps model.safetensors into its address space instead of copying it — mmap via raw POSIX FFI (no libc crate), argument by argument, contained in one RAII Drop wrapper.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/06-mmap.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 06 · turning a file into memory</p>
+    <h2>mmap: the file <em>is</em> the backing store</h2>
+    <p class="note-meta"><b>Context:</b> M1, reading <code>model.safetensors</code> ·
+      <b>Status:</b> <span class="status-live">living</span></p>
+    <p class="lead">To load the weights we had a choice: read the 1.4&nbsp;GB
+      <code>model.safetensors</code> into a <code>Vec&lt;u8&gt;</code>, or <strong>mmap it</strong>.
+      We chose mmap — and because the project's rule is <em>no hidden abstraction</em>, we call it
+      with <strong>raw POSIX FFI, no <code>libc</code> crate</strong>. This note is what that means
+      and why.</p>
+    <div class="callout">
+      This note is purely about <em>getting the bytes into our address space</em>. See
+      <a href="./01-safetensors-vs-gguf.html">Learning 01</a> for the file <em>format</em> and
+      <a href="./05-reading-shapes.html">Learning 05</a> for the tensor <em>shapes</em>.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering · §4.2.2 (model loading, p.103)</span>
+      <span class="chip chip--ds4">🔧 ds4 · “Loading is mmap based” (ds4.c:11) — same idea, in C</span>
+      <span class="chip chip--rasch">🧭 POSIX mmap(2) / munmap(2) man pages</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== WHAT MMAP DOES ============================== -->
+<section id="what">
+  <div class="container">
+    <p class="eyebrow">Copy vs map</p>
+    <h2>What <code>mmap</code> actually does</h2>
+    <p class="prose"><code>std::fs::read</code> <strong>copies</strong>: the kernel reads the file
+      into a buffer you own — all 1.4&nbsp;GB, up front, into your heap. <code>mmap</code> does
+      something different: it <strong>maps the file into your virtual address space</strong> and
+      hands you a pointer. No bytes are copied yet. Pages are pulled in <strong>lazily, on first
+      touch</strong> (a page fault), and the OS can drop clean pages under memory pressure and
+      re-read them from the file later.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 720 260" role="img"
+           aria-label="std::fs::read copies the whole 1.4 GB file into the heap up front; mmap maps the file into the address space with no copy, and pages fault in lazily on first touch.">
+        <style>
+          .box  { stroke-width: 1.5; }
+          .file { fill: var(--text-mute); fill-opacity: .16; stroke: var(--text-mute); }
+          .heap { fill: var(--ember);     fill-opacity: .18; stroke: var(--ember); }
+          .addr { fill: var(--ds4);       fill-opacity: .16; stroke: var(--ds4); }
+          .blab { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+          .sub  { font-family: var(--mono); font-size: 10.5px; fill: var(--text-dim); }
+          .rlab { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+          .arw  { font-family: var(--mono); font-size: 11px; fill: var(--text-mute); }
+          .flow { stroke: var(--border-2); stroke-width: 1.5; fill: none; }
+        </style>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--border-2)"/>
+          </marker>
+        </defs>
+
+        <!-- ROW 1 : std::fs::read (eager copy) -->
+        <text x="16" y="52" class="rlab">std::fs::read</text>
+        <text x="16" y="70" class="sub">eager · owns the bytes</text>
+
+        <rect class="box file" x="150" y="28" width="120" height="60" rx="6"/>
+        <text x="210" y="54" text-anchor="middle" class="blab">file</text>
+        <text x="210" y="72" text-anchor="middle" class="sub">1.4 GB</text>
+
+        <line class="flow" x1="272" y1="58" x2="452" y2="58" marker-end="url(#ah)"/>
+        <text x="362" y="48" text-anchor="middle" class="arw">copy all 1.4 GB</text>
+
+        <rect class="box heap" x="454" y="28" width="120" height="60" rx="6"/>
+        <text x="514" y="54" text-anchor="middle" class="blab">heap</text>
+        <text x="514" y="72" text-anchor="middle" class="sub">1.4 GB copy</text>
+
+        <!-- ROW 2 : mmap (lazy map) -->
+        <text x="16" y="188" class="rlab">mmap</text>
+        <text x="16" y="206" class="sub">lazy · the file *is* the store</text>
+
+        <rect class="box file" x="150" y="164" width="120" height="60" rx="6"/>
+        <text x="210" y="190" text-anchor="middle" class="blab">file</text>
+        <text x="210" y="208" text-anchor="middle" class="sub">1.4 GB</text>
+
+        <line class="flow" x1="272" y1="194" x2="452" y2="194" marker-end="url(#ah)"/>
+        <text x="362" y="184" text-anchor="middle" class="arw">map · no copy</text>
+        <text x="362" y="216" text-anchor="middle" class="arw">pages fault in on touch</text>
+
+        <rect class="box addr" x="454" y="164" width="120" height="60" rx="6"/>
+        <text x="514" y="190" text-anchor="middle" class="blab">address</text>
+        <text x="514" y="208" text-anchor="middle" class="blab">space</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--text-mute)"></i> file on disk</span>
+        <span><i style="background:var(--ember)"></i> heap copy (eager)</span>
+        <span><i style="background:var(--ds4)"></i> mapped into address space (lazy)</span>
+      </div>
+      <figcaption><code>read</code> eagerly duplicates every byte into the heap;
+        <code>mmap</code> hands back a pointer and lets the OS page the file in only where you
+        touch it.</figcaption>
+    </figure>
+
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>std::fs::read (eager copy)</h3>
+        <p class="prose" style="margin:0">Reads the whole file into a heap buffer up front. You
+          <strong>own</strong> the bytes — and pay 1.4&nbsp;GB of resident memory whether you touch
+          them or not.</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>mmap (lazy map)</h3>
+        <p class="prose" style="margin:0">Maps the file, copies nothing. Pages fault in on first
+          touch and the OS can reclaim clean ones. The <strong>file is the backing store</strong>.</p>
+      </div>
+    </div>
+
+    <p class="prose">For read-only weights this is ideal:</p>
+    <div class="cards">
+      <div class="card card--helpful">
+        <h3>Zero-copy</h3>
+        <p>Our <code>Tensor</code>s are just <code>&amp;[u8]</code> slices into the mapping (see
+          <code>SafeTensors::bytes</code>). We never duplicate a weight — this is exactly what makes
+          the “lazy bf16” decision work: nothing is materialized until M2 reads it.</p>
+      </div>
+      <div class="card card--helpful">
+        <h3>Lazy + reclaimable</h3>
+        <p>Touch only the tensors you use; the OS handles paging, dropping and re-reading clean
+          pages under pressure.</p>
+      </div>
+      <div class="card card--teach">
+        <h3>It's what ds4 does</h3>
+        <p>The mmap-based loading strategy transfers straight to the bigger engine, so the mental
+          model carries forward.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>The cost.</strong> A mapping is <em>unsafe</em> to hold — a raw pointer with a
+      lifetime the compiler can't see — and the file shouldn't change underneath us. We contain
+      that unsafety in one small <code>Mmap</code> type (below).
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE POSIX CALL ============================== -->
+<section id="posix">
+  <div class="container">
+    <p class="eyebrow">Argument by argument</p>
+    <h2>The POSIX call</h2>
+    <pre><code>void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset);
+int   munmap(void *addr, size_t len);</code></pre>
+    <p class="prose">For mapping a whole file read-only we pass:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>arg</th><th>we pass</th><th>why</th></tr></thead>
+        <tbody>
+          <tr><td><code>addr</code></td><td><code>NULL</code></td><td>let the kernel choose the address</td></tr>
+          <tr><td><code>len</code></td><td>file size</td><td>map the entire file (from <code>file.metadata().len()</code>)</td></tr>
+          <tr><td><code>prot</code></td><td><code>PROT_READ</code> (<code>0x1</code>)</td><td>pages may be read, not written</td></tr>
+          <tr><td><code>flags</code></td><td><code>MAP_PRIVATE</code> (<code>0x2</code>)</td><td>copy-on-write, private to us — we only read</td></tr>
+          <tr><td><code>fd</code></td><td>the file's descriptor</td><td>which file to map (<code>File::as_raw_fd()</code>)</td></tr>
+          <tr><td><code>offset</code></td><td><code>0</code></td><td>start at the beginning of the file</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>Two gotchas worth burning in.</strong>
+      <ul>
+        <li><strong>Failure is <code>MAP_FAILED</code>, not null.</strong> <code>mmap</code> returns
+          <code>(void *) -1</code> on error (<code>usize::MAX as *mut c_void</code>). Checking for
+          null would miss every failure.</li>
+        <li><strong>A zero-length file can't be mapped</strong> (<code>len</code> must be
+          &gt;&nbsp;0) — we error out before calling.</li>
+      </ul>
+    </div>
+
+    <p class="prose">After a successful map, the <strong>file descriptor can be closed</strong>: the
+      mapping keeps its own reference to the file, so the bytes stay valid until we
+      <code>munmap</code>.</p>
+  </div>
+</section>
+
+<!-- ============================== FFI FROM RUST ============================== -->
+<section id="ffi">
+  <div class="container">
+    <p class="eyebrow">No libc crate</p>
+    <h2>Calling it from Rust</h2>
+    <p class="prose"><code>libc</code> is just declarations for calls the kernel already provides, so
+      we write those declarations ourselves. In <strong>edition 2024</strong> an FFI block is
+      <code>unsafe extern</code>:</p>
+    <pre><code>use std::ffi::{c_int, c_void};
+
+unsafe extern "C" {
+    fn mmap(addr: *mut c_void, len: usize, prot: c_int,
+            flags: c_int, fd: c_int, offset: i64) -&gt; *mut c_void;
+    fn munmap(addr: *mut c_void, len: usize) -&gt; c_int;
+}
+
+const PROT_READ:   c_int = 0x1;
+const MAP_PRIVATE: c_int = 0x2;
+const MAP_FAILED: *mut c_void = usize::MAX as *mut c_void;</code></pre>
+    <p class="prose">(<code>offset</code> is <code>off_t</code>, which is 64-bit on macOS/arm64, so
+      <code>i64</code>.)</p>
+  </div>
+</section>
+
+<!-- ============================== RAII WRAPPER ============================== -->
+<section id="raii">
+  <div class="container">
+    <p class="eyebrow">Containing the unsafety</p>
+    <h2>One RAII wrapper</h2>
+    <p class="prose">All the danger lives in a small owner that maps on construction and
+      <strong>unmaps on <code>Drop</code></strong> — so cleanup is automatic and can't be
+      forgotten:</p>
+    <pre><code>struct Mmap { ptr: *const u8, len: usize }
+
+impl Mmap {
+    fn as_bytes(&amp;self) -&gt; &amp;[u8] {
+        // SAFETY: ptr points at len valid, read-only bytes for self's lifetime.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl Drop for Mmap {
+    fn drop(&amp;mut self) {
+        // SAFETY: ptr/len came from a successful mmap; unmapped exactly once.
+        unsafe { munmap(self.ptr as *mut c_void, self.len); }
+    }
+}</code></pre>
+    <p class="prose">Why this is sound to expose safely:</p>
+    <ul class="checklist">
+      <li>the mapping is <strong>read-only</strong>, so <code>&amp;[u8]</code> can't be used to
+        mutate it;</li>
+      <li>the slice <strong>borrows <code>self</code></strong>, so it can't outlive the mapping (no
+        use-after-unmap);</li>
+      <li><code>munmap</code> runs <strong>exactly once</strong>, when the <code>Mmap</code> is
+        dropped — RAII, same shape as C's “map then <code>munmap</code>,” but the compiler enforces
+        the cleanup.</li>
+    </ul>
+    <div class="callout">
+      <code>SafeTensors</code> then owns one <code>Mmap</code> and hands out tensor slices into it.
+      The raw pointer never escapes; <strong>everything above this type is safe Rust</strong>.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li>⬅ <a href="./01-safetensors-vs-gguf.html">Learning 01 · safetensors vs GGUF</a> — the
+          byte layout we're mapping (<code>[u64 len][JSON header][blob]</code>).</li>
+        <li>🔗 <a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — what the mapped
+          bytes <em>mean</em> once we slice them into tensors.</li>
+        <li>🔗 <a href="./07-bf16.html">Learning 07 · bf16</a> — the 2-byte weights we keep raw in
+          the mapping instead of materializing to f32.</li>
+        <li>🔧 <code>src/safetensors.rs</code> — the <code>Mmap</code> wrapper +
+          <code>SafeTensors</code> reader this note documents.</li>
+        <li>🔧 <a href="https://github.com/antirez/ds4/blob/main/ds4.c"><code>ds4.c</code></a> — the
+          C version of the same mmap-based loading strategy. · Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/06-mmap.md"><code>docs/learnings/06-mmap.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/06-mmap.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

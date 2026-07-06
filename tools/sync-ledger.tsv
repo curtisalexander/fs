@@ -9,3 +9,11 @@ docs/index.html	docs/00-map.md,docs/prerequisites.md	489d37f
 docs/prerequisites.html	docs/prerequisites.md	489d37f
 docs/diagrams.html	docs/00-map.md	489d37f
 docs/01-tokenizer.html	docs/01-tokenizer.md	489d37f
+docs/learnings/index.html	docs/learnings/README.md	99b6640
+docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	99b6640
+docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	99b6640
+docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	99b6640
+docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	99b6640
+docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	99b6640
+docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	99b6640
+docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	99b6640
