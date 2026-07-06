@@ -4,9 +4,43 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M1 — Load the weights (◐ scaffolding). Design locked this session: mmap via raw FFI, lazy bf16 (raw bytes, convert on access), and a shape-first `fs inspect` that cross-checks the tensor set against `config.json`. M0 — Tokenizer is ✅ complete (all four stages + special tokens, **14/14 golden cases pass**, CLI runs, single-file `tokenizer.json` source).
-**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B. The tokenizer loads everything from the single `tokenizer.json` (vocab + merges + regex + special tokens) in `src/tokenizer.rs` (`build_byte_encoder`, `build_vocab`/`build_merges`, `extract_pattern`, `build_special_tokens`, `bpe` + `adjacent_pairs`/`merge_pair`, `pretokenize`, special-token carving, and the wired `load`/`encode`/`decode`). 17 unit + 2 golden integration tests green; no warnings, clippy clean. Milestone writeup: [`docs/01-tokenizer.md`](docs/01-tokenizer.md).
+**Current milestone:** M1 — Load the weights (◐ building, bottom-up). **First helper landed:** `Mmap::open` — the raw POSIX `mmap` FFI — implemented + verified. Design (locked earlier): mmap via raw FFI, lazy bf16 (raw bytes, convert on access), shape-first `fs inspect` cross-checking the tensor set against `config.json`. **Next helper: `SafeTensors::load`** (u64 header len → JSON header → tensor directory). M0 — Tokenizer ✅ complete (14/14 golden).
+**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B (tokenizer in `src/tokenizer.rs`, all four BPE stages + special tokens). **M1 in progress:** `src/safetensors.rs::Mmap::open` maps the whole file zero-copy via raw `mmap`/`munmap` FFI with RAII `munmap` on `Drop`; 3 unit tests exercise the live syscall (byte-exact round-trip incl. NUL/high bytes, missing-file → typed `MapFailed`, empty-file rejected). **20 unit + 2 golden integration tests green; clippy clean.** Still `todo!()` in M1 order: `SafeTensors::load` → `Config::load` → `expected_tensors`/`cross_check` → `render_*`. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md); `docs/02-weights.md` owed at M1 close.
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings now have their own section** (`docs/learnings/index.html` + a page per note, in the site nav) — the owed HTML-graduation debt for `learnings/01–07` is **cleared**.
+
+---
+
+## Session 10 — 2026-07-06 — M1 first helper: `Mmap::open` (raw POSIX mmap FFI)
+
+**Did:** implemented the bottom of the M1 stack — the one primitive every later
+helper reads through — with a strong teach-through, then verified it against the
+real syscall. Kept scope to exactly this one helper.
+
+**`Mmap::open` (`src/safetensors.rs`):** path → zero-copy, read-only mapping of the
+whole file.
+- open file → fd; map length = `metadata().len()`; guard `len == 0` (mmap rejects
+  it with `EINVAL`) *before* the syscall so the error reads "empty file".
+- the single `unsafe` line is the `mmap()` call itself — unsafety is *contained*,
+  not spread; safe Rust above it, the raw pointer never escapes `Mmap`.
+- two POSIX gotchas made loud: failure is **`MAP_FAILED` = `(void*)-1`, not null**
+  (checked, with `last_os_error()` for the errno); and the **fd can drop after
+  mapping** — a live mapping holds its own reference to the file, so `file` is let
+  go at function end without tearing the mapping down.
+- derived `Debug` on `Mmap` so tests can `unwrap_err()` the `Ok`-side.
+
+**Verify (M0 cadence — one helper, tests that hit reality):** 3 unit tests exercise
+the live FFI — byte-exact round-trip (feeds `\x00\x01\xfe\xff` to prove *raw bytes*,
+not a decoded string) · missing file → typed `MapFailed` (no panic) · empty file
+rejected. Full suite **20 unit + 2 golden green**; `cargo clippy --all-targets`
+clean. Committed `814905d`, pushed to `origin/main`.
+
+**Teaching notes already in place** (Session 9): [`learnings/06-mmap.md`](docs/learnings/06-mmap.md)
+(virtual memory / lazy paging / RAII) and its HTML page back the "why."
+
+**Next:** `SafeTensors::load` — the first *reader* on the mapping: first 8 bytes =
+`u64` LE header length `N` → parse `[8, 8+N)` as the JSON header (`serde_json::Value`)
+→ build the tensor directory (name→`{dtype, shape, [start,end)}`), validating each
+entry's byte length against `shape · dtype.size()`. Then `Config::load`.
 
 ---
 
