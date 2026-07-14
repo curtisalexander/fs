@@ -3,7 +3,10 @@
 //! This is one of the *two things* a model is (see
 //! [`docs/learnings/01-safetensors-vs-gguf.md`]): the **description** of how the
 //! weights are arranged. The other thing — the weights themselves — lives in
-//! `model.safetensors` and is handled by [`crate::safetensors`].
+//! `model.safetensors` and is handled by [`crate::safetensors`]. You need *both* to
+//! rebuild a network; what `config.json` is (and the surprising fact that it
+//! *parameterizes* an architecture rather than describing one) is
+//! [`docs/learnings/09-config.md`].
 //!
 //! Every shape in the engine is built from the seven named dimensions below; the
 //! map for how they line up is [`docs/learnings/05-reading-shapes.md`]. We keep a
@@ -49,8 +52,65 @@ impl Config {
     ///    `ConfigError::BadField`). No silent defaults — a model we don't
     ///    understand should fail loudly here, not produce wrong shapes later.
     pub fn load(model_dir: &str) -> Result<Self, ConfigError> {
-        let _ = model_dir;
-        todo!("read config.json → serde_json::Value → extract the fields above")
+        let path = format!("{model_dir}/config.json");
+
+        // 1. Read the file to a string. A missing/unreadable file is NotFound.
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| ConfigError::NotFound { path: path.clone(), message: e.to_string() })?;
+
+        // 2. Parse the JSON once. serde_json owns "are these bytes JSON?" (not the
+        //    lesson — see the M0 dependency note); we pull fields out by hand below.
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| ConfigError::Parse { path: path.clone(), message: e.to_string() })?;
+
+        // 3. One typed extractor per JSON scalar kind. Each names the field it
+        //    couldn't satisfy: absent → MissingField, wrong type/range → BadField.
+        //    No silent defaults — a model we don't understand fails loudly here.
+        let uint = |field: &'static str| -> Result<usize, ConfigError> {
+            v.get(field)
+                .ok_or(ConfigError::MissingField { field })?
+                .as_u64()
+                .map(|n| n as usize)
+                .ok_or_else(|| ConfigError::BadField { field, message: "expected a non-negative integer".into() })
+        };
+        let token_id = |field: &'static str| -> Result<u32, ConfigError> {
+            let n = v
+                .get(field)
+                .ok_or(ConfigError::MissingField { field })?
+                .as_u64()
+                .ok_or_else(|| ConfigError::BadField { field, message: "expected a non-negative integer".into() })?;
+            u32::try_from(n).map_err(|_| ConfigError::BadField { field, message: format!("{n} does not fit in u32") })
+        };
+        let float = |field: &'static str| -> Result<f64, ConfigError> {
+            v.get(field)
+                .ok_or(ConfigError::MissingField { field })?
+                .as_f64()
+                .ok_or_else(|| ConfigError::BadField { field, message: "expected a number".into() })
+        };
+        let boolean = |field: &'static str| -> Result<bool, ConfigError> {
+            v.get(field)
+                .ok_or(ConfigError::MissingField { field })?
+                .as_bool()
+                .ok_or_else(|| ConfigError::BadField { field, message: "expected a boolean".into() })
+        };
+
+        Ok(Config {
+            vocab_size: uint("vocab_size")?,
+            hidden_size: uint("hidden_size")?,
+            num_hidden_layers: uint("num_hidden_layers")?,
+            head_dim: uint("head_dim")?,
+            num_attention_heads: uint("num_attention_heads")?,
+            num_key_value_heads: uint("num_key_value_heads")?,
+            intermediate_size: uint("intermediate_size")?,
+            // eps/theta are floats in JSON (theta may be written as an int like
+            // 1000000 — as_f64 handles both); eps narrows to f32, our compute width.
+            rms_norm_eps: float("rms_norm_eps")? as f32,
+            rope_theta: float("rope_theta")?,
+            tie_word_embeddings: boolean("tie_word_embeddings")?,
+            bos_token_id: token_id("bos_token_id")?,
+            eos_token_id: token_id("eos_token_id")?,
+            max_position_embeddings: uint("max_position_embeddings")?,
+        })
     }
 
     /// Query-projection output width: `num_attention_heads · head_dim`.
@@ -111,3 +171,114 @@ impl std::fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A minimal but complete config, with dims chosen so the derived widths are
+    // easy to eyeball: q = 4·4 = 16, kv = 2·4 = 8, gqa group = 4/2 = 2.
+    const MINI: &str = r#"{
+        "vocab_size": 100, "hidden_size": 8, "num_hidden_layers": 2,
+        "head_dim": 4, "num_attention_heads": 4, "num_key_value_heads": 2,
+        "intermediate_size": 16, "rms_norm_eps": 1e-6, "rope_theta": 10000,
+        "tie_word_embeddings": true, "bos_token_id": 1, "eos_token_id": 2,
+        "max_position_embeddings": 32
+    }"#;
+
+    /// Write `<dir>/config.json` in a fresh temp dir and return the dir path.
+    fn write_config(tag: &str, json: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("fs_config_{tag}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.json"), json).unwrap();
+        dir
+    }
+
+    #[test]
+    fn parses_fields_and_derives_widths() {
+        let dir = write_config("mini", MINI);
+        let cfg = Config::load(dir.to_str().unwrap()).expect("valid config loads");
+
+        assert_eq!(cfg.vocab_size, 100);
+        assert_eq!(cfg.head_dim, 4);
+        assert_eq!(cfg.num_attention_heads, 4);
+        assert_eq!(cfg.num_key_value_heads, 2);
+        assert!(cfg.tie_word_embeddings);
+        assert_eq!(cfg.bos_token_id, 1);
+        assert_eq!(cfg.rms_norm_eps, 1e-6);
+        assert_eq!(cfg.rope_theta, 10000.0);
+
+        // The relationships that matter for the shape table (learning 05).
+        assert_eq!(cfg.q_width(), 16);
+        assert_eq!(cfg.kv_width(), 8);
+        assert_eq!(cfg.gqa_group(), 2);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_field_names_the_field() {
+        // Drop hidden_size from an otherwise-valid config.
+        let json = MINI.replace("\"hidden_size\": 8,", "");
+        let dir = write_config("missing", &json);
+        let err = Config::load(dir.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, ConfigError::MissingField { field: "hidden_size" }));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn wrong_type_is_a_bad_field() {
+        // hidden_size present but a string, not a number.
+        let json = MINI.replace("\"hidden_size\": 8", "\"hidden_size\": \"lots\"");
+        let dir = write_config("badtype", &json);
+        let err = Config::load(dir.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, ConfigError::BadField { field: "hidden_size", .. }));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_file_is_not_found() {
+        let err = Config::load("/no/such/failed-star/model").unwrap_err();
+        assert!(matches!(err, ConfigError::NotFound { .. }));
+    }
+
+    #[test]
+    fn malformed_json_is_a_parse_error() {
+        let dir = write_config("badjson", "{ not valid json");
+        let err = Config::load(dir.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, ConfigError::Parse { .. }));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reads_the_real_qwen_config_if_present() {
+        // Reality check against the shipped config.json — skipped on a fresh
+        // checkout (assets git-ignored), like the golden tokenizer test.
+        let dir = "models/qwen3-0.6b";
+        if !std::path::Path::new(dir).join("config.json").exists() {
+            eprintln!("skipping: {dir}/config.json not fetched");
+            return;
+        }
+        let cfg = Config::load(dir).expect("real Qwen config loads");
+
+        // The seven named dims + the M2/M3 scalars, straight from the model card.
+        assert_eq!(cfg.vocab_size, 151936);
+        assert_eq!(cfg.hidden_size, 1024);
+        assert_eq!(cfg.num_hidden_layers, 28);
+        assert_eq!(cfg.head_dim, 128);
+        assert_eq!(cfg.num_attention_heads, 16);
+        assert_eq!(cfg.num_key_value_heads, 8);
+        assert_eq!(cfg.intermediate_size, 3072);
+        assert_eq!(cfg.rms_norm_eps, 1e-6);
+        assert_eq!(cfg.rope_theta, 1_000_000.0);
+        assert!(cfg.tie_word_embeddings);
+        assert_eq!(cfg.bos_token_id, 151643);
+        assert_eq!(cfg.eos_token_id, 151645);
+        assert_eq!(cfg.max_position_embeddings, 40960);
+
+        // Derived widths that drive the M1 shape table: q=16·128, kv=8·128, group=2.
+        assert_eq!(cfg.q_width(), 2048);
+        assert_eq!(cfg.kv_width(), 1024);
+        assert_eq!(cfg.gqa_group(), 2);
+    }
+}

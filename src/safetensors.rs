@@ -196,6 +196,7 @@ impl Tensor {
 
 /// A parsed, memory-mapped safetensors file: the mapping plus a directory of its
 /// tensors (kept in file order, with a name→index for lookup).
+#[derive(Debug)] // so tests can `unwrap_err()` a `Result<SafeTensors, _>`
 pub struct SafeTensors {
     mmap: Mmap,
     data_start: usize, // = 8 + header_len; where the tensor blob begins in the file
@@ -222,8 +223,70 @@ impl SafeTensors {
     /// 5. `data_start = 8 + N`; build the name→index map (duplicate name =
     ///    `BadHeader`). Keep `tensors` in header order for a stable `inspect`.
     pub fn load(path: &str) -> Result<Self, SafeTensorsError> {
-        let _ = path;
-        todo!("mmap → read u64 header len → parse JSON header → build the directory")
+        // 1. Map the whole file zero-copy (learning 06). Everything below is a
+        //    *view* into these bytes — we borrow, never copy a weight.
+        let mmap = Mmap::open(path)?;
+        let bytes = mmap.as_bytes();
+
+        // 2. The first 8 bytes are a little-endian u64: the JSON header's length N.
+        //    A file too short to even hold that count is truncated.
+        if bytes.len() < 8 {
+            return Err(SafeTensorsError::Truncated {
+                message: format!("need 8 bytes for the header length, file has {}", bytes.len()),
+            });
+        }
+        // `try_into` on the fixed 8-byte slice can't fail — we just checked the len.
+        let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+
+        // 3. Lay out the three regions: [0,8) count · [8, 8+N) JSON · [8+N, ..) blob.
+        //    The header can't run past the end of the file.
+        let data_start = 8 + header_len;
+        if bytes.len() < data_start {
+            return Err(SafeTensorsError::Truncated {
+                message: format!(
+                    "header claims {header_len} bytes but only {} follow the count",
+                    bytes.len() - 8
+                ),
+            });
+        }
+        let header_bytes = &bytes[8..data_start];
+        let blob_len = bytes.len() - data_start;
+
+        // 4. Parse the header as a JSON object (name → tensor info, plus the one
+        //    reserved `__metadata__` key). serde_json owns "are these bytes JSON?"
+        //    — that's not the lesson (see the M0 dependency note).
+        let header: serde_json::Value = serde_json::from_slice(header_bytes)
+            .map_err(|e| SafeTensorsError::BadHeader { message: e.to_string() })?;
+        let obj = header.as_object().ok_or_else(|| SafeTensorsError::BadHeader {
+            message: "top-level header is not a JSON object".into(),
+        })?;
+
+        // 5. Walk each entry into the tensor directory. JSON object keys are unique,
+        //    so no duplicate-name check is needed.
+        let mut tensors: Vec<Tensor> = Vec::new();
+        let mut metadata = HashMap::new();
+        for (name, info) in obj {
+            if name == "__metadata__" {
+                // Reserved: free-form string→string (e.g. {"format":"pt"}), not a
+                // tensor. Keep the string values; ignore anything non-string.
+                if let Some(m) = info.as_object() {
+                    for (k, v) in m {
+                        if let Some(s) = v.as_str() {
+                            metadata.insert(k.clone(), s.to_string());
+                        }
+                    }
+                }
+                continue;
+            }
+            tensors.push(parse_tensor_entry(name, info, blob_len)?);
+        }
+
+        // Present tensors in physical blob order — stable, and it mirrors how the
+        // file is actually laid out (serde_json's map order is otherwise incidental).
+        tensors.sort_by_key(|t| t.start);
+        let index = tensors.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
+
+        Ok(SafeTensors { mmap, data_start, tensors, index, metadata })
     }
 
     /// All tensors, in file order (what `inspect` walks).
@@ -249,6 +312,70 @@ impl SafeTensors {
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
+}
+
+/// Parse one header entry `{"dtype": .., "shape": [..], "data_offsets": [s, e]}`
+/// into a [`Tensor`], validating it against the blob length.
+///
+/// The two checks that earn their keep: `end` stays inside the blob, and the byte
+/// span `end - start` equals `shape·dtype.size()`. Either failing means the header
+/// disagrees with itself — better to fail loudly here than mis-slice in M2.
+fn parse_tensor_entry(
+    name: &str,
+    info: &serde_json::Value,
+    blob_len: usize,
+) -> Result<Tensor, SafeTensorsError> {
+    // Every failure below names the offending tensor.
+    let bad = |message: String| SafeTensorsError::BadTensorInfo { name: name.to_string(), message };
+
+    let obj = info.as_object().ok_or_else(|| bad("entry is not a JSON object".into()))?;
+
+    // dtype — a string like "BF16"; Dtype::parse rejects the ones we don't handle.
+    let dtype_str = obj
+        .get("dtype")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| bad("missing or non-string 'dtype'".into()))?;
+    let dtype = Dtype::parse(dtype_str)?;
+
+    // shape — an array of non-negative integers (a scalar is the empty array []).
+    let shape_arr = obj
+        .get("shape")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| bad("missing or non-array 'shape'".into()))?;
+    let mut shape = Vec::with_capacity(shape_arr.len());
+    for d in shape_arr {
+        let d = d.as_u64().ok_or_else(|| bad("shape has a non-integer dimension".into()))?;
+        shape.push(d as usize);
+    }
+
+    // data_offsets — exactly [start, end), blob-relative byte range.
+    let offsets = obj
+        .get("data_offsets")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| bad("missing or non-array 'data_offsets'".into()))?;
+    if offsets.len() != 2 {
+        return Err(bad(format!("data_offsets must have 2 elements, got {}", offsets.len())));
+    }
+    let start = offsets[0].as_u64().ok_or_else(|| bad("data_offsets[0] is not an integer".into()))? as usize;
+    let end = offsets[1].as_u64().ok_or_else(|| bad("data_offsets[1] is not an integer".into()))? as usize;
+
+    // Consistency: start ≤ end ≤ blob, and the span matches shape·dtype exactly.
+    if end < start {
+        return Err(bad(format!("data_offsets end {end} < start {start}")));
+    }
+    if end > blob_len {
+        return Err(bad(format!("data_offsets end {end} exceeds blob length {blob_len}")));
+    }
+    let want_bytes = shape.iter().product::<usize>() * dtype.size();
+    let got_bytes = end - start;
+    if got_bytes != want_bytes {
+        return Err(bad(format!(
+            "byte span {got_bytes} != shape·dtype {want_bytes} (shape {shape:?} × {}B)",
+            dtype.size()
+        )));
+    }
+
+    Ok(Tensor { name: name.to_string(), dtype, shape, start, end })
 }
 
 /// Everything that can go wrong mapping/parsing a safetensors file.
@@ -333,5 +460,111 @@ mod tests {
         let err = Mmap::open(path.to_str().unwrap()).unwrap_err();
         assert!(matches!(err, SafeTensorsError::MapFailed { .. }), "mmap can't map 0 bytes");
         std::fs::remove_file(&path).ok();
+    }
+
+    // ── SafeTensors::load ────────────────────────────────────────────────────
+
+    /// Write a safetensors file by hand: `[u64 LE header len][header JSON][blob]`.
+    fn write_st(path: &std::path::Path, header_json: &str, blob: &[u8]) {
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(&(header_json.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(header_json.as_bytes()).unwrap();
+        f.write_all(blob).unwrap();
+    }
+
+    #[test]
+    fn loads_directory_metadata_and_zero_copy_bytes() {
+        // Two F32 tensors laid out back to back: a=[2] (8B) then b=[2,2] (16B).
+        let header = r#"{"__metadata__":{"format":"test"},"b":{"dtype":"F32","shape":[2,2],"data_offsets":[8,24]},"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#;
+        let blob: Vec<u8> = (0u8..24).collect();
+        let path = temp_path("load_ok");
+        write_st(&path, header, &blob);
+
+        let st = SafeTensors::load(path.to_str().unwrap()).expect("valid file loads");
+
+        // __metadata__ is captured, not treated as a tensor.
+        assert_eq!(st.metadata().get("format").map(String::as_str), Some("test"));
+        assert_eq!(st.tensors().len(), 2, "metadata is not counted as a tensor");
+
+        // Directory is sorted into physical blob order (a at 0, b at 8) regardless
+        // of the header's key order above.
+        assert_eq!(st.tensors()[0].name, "a");
+        assert_eq!(st.tensors()[1].name, "b");
+
+        let a = st.tensor("a").expect("a present");
+        assert_eq!(a.dtype, Dtype::F32);
+        assert_eq!(a.shape, vec![2]);
+        assert_eq!(a.num_elements(), 2);
+        assert_eq!(a.num_bytes(), 8);
+
+        let b = st.tensor("b").expect("b present");
+        assert_eq!(b.shape, vec![2, 2]);
+        assert_eq!(b.num_bytes(), 16);
+
+        // The payload is a zero-copy view into the blob at the right offset.
+        assert_eq!(st.bytes(a), &blob[0..8]);
+        assert_eq!(st.bytes(b), &blob[8..24]);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn header_length_past_end_is_truncated() {
+        // Claim a 999-byte header but write almost nothing after the count.
+        let path = temp_path("trunc_header");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(&999u64.to_le_bytes()).unwrap();
+        f.write_all(b"{}").unwrap();
+        drop(f);
+        let err = SafeTensors::load(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, SafeTensorsError::Truncated { .. }));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn byte_span_not_matching_shape_is_bad_tensor_info() {
+        // shape [2] F32 wants 8 bytes, but the offsets only span 4.
+        let header = r#"{"x":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#;
+        let path = temp_path("bad_span");
+        write_st(&path, header, &[0u8; 4]);
+        let err = SafeTensors::load(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, SafeTensorsError::BadTensorInfo { name, .. } if name == "x"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn unknown_dtype_is_rejected() {
+        let header = r#"{"x":{"dtype":"F64","shape":[1],"data_offsets":[0,8]}}"#;
+        let path = temp_path("bad_dtype");
+        write_st(&path, header, &[0u8; 8]);
+        let err = SafeTensors::load(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, SafeTensorsError::UnknownDtype { dtype } if dtype == "F64"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn reads_the_real_qwen_weights_if_present() {
+        // Reality check against the actual 1.4 GB file — skipped on a fresh
+        // checkout (assets git-ignored), like the golden tokenizer test.
+        let path = "models/qwen3-0.6b/model.safetensors";
+        if !std::path::Path::new(path).exists() {
+            eprintln!("skipping: {path} not fetched");
+            return;
+        }
+        let st = SafeTensors::load(path).expect("real Qwen weights load");
+
+        assert_eq!(st.metadata().get("format").map(String::as_str), Some("pt"));
+
+        // The embedding matrix: [V, H] = [151936, 1024], all bf16, 2 bytes/elem.
+        let embed = st.tensor("model.embed_tokens.weight").expect("embed present");
+        assert_eq!(embed.dtype, Dtype::BF16);
+        assert_eq!(embed.shape, vec![151936, 1024]);
+        assert_eq!(st.bytes(embed).len(), 151936 * 1024 * 2);
+
+        // Every tensor's byte slice stays inside the mapping (load already checked
+        // this, but prove the accessor path too).
+        for t in st.tensors() {
+            assert_eq!(st.bytes(t).len(), t.num_bytes());
+        }
     }
 }
