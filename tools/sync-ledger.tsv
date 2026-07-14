@@ -5,16 +5,16 @@
 # has changed since — i.e. when a page is due for a re-read.
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
-docs/index.html	docs/00-map.md,docs/prerequisites.md	8625059
-docs/prerequisites.html	docs/prerequisites.md	8625059
-docs/diagrams.html	docs/00-map.md	8625059
-docs/01-tokenizer.html	docs/01-tokenizer.md	8625059
-docs/learnings/index.html	docs/learnings/README.md	8625059
-docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	8625059
-docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	8625059
-docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	8625059
-docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	8625059
-docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	8625059
-docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	8625059
-docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	8625059
-docs/learnings/09-config.html	docs/learnings/09-config.md	92b45b0
+docs/index.html	docs/00-map.md,docs/prerequisites.md	6809cec
+docs/prerequisites.html	docs/prerequisites.md	6809cec
+docs/diagrams.html	docs/00-map.md	6809cec
+docs/01-tokenizer.html	docs/01-tokenizer.md	6809cec
+docs/learnings/index.html	docs/learnings/README.md	6809cec
+docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	6809cec
+docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	6809cec
+docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	6809cec
+docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	6809cec
+docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	6809cec
+docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	6809cec
+docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	6809cec
+docs/learnings/09-config.html	docs/learnings/09-config.md	6809cec
