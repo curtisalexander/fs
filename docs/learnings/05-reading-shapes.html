@@ -27,7 +27,7 @@
       <a href="../index.html">Home</a>
       <a href="../prerequisites.html">Prerequisites</a>
       <a href="../diagrams.html">Diagrams</a>
-      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="../02-weights.html">Milestones</a>
       <a href="./index.html" class="current" aria-current="page">Learnings</a>
       <a href="https://github.com/curtisalexander/fs">GitHub</a>
     </nav>
@@ -409,7 +409,7 @@
           <tr><td><code>up_proj</code></td><td><code>[I, H] = [3072, 1024]</code></td><td>H ──▶ I</td></tr>
           <tr><td><code>down_proj</code></td><td><code>[H, I] = [1024, 3072]</code></td><td>I ──▶ H &nbsp;<span class="note-meta">(back to the bus)</span></td></tr>
           <tr><td><code>model.norm</code> <span class="note-meta">(final)</span></td><td><code>[H]</code></td><td>scale the H-wide bus</td></tr>
-          <tr><td><code>lm_head</code> <span class="note-meta">(tied → embed_tokens)</span></td><td>—</td><td>H ──▶ V &nbsp;<span class="note-meta">(reuse the embedding table)</span></td></tr>
+          <tr><td><code>lm_head</code> <span class="note-meta">(tied)</span></td><td><code>[V, H]</code></td><td>H ──▶ V &nbsp;<span class="note-meta">(tied to embed_tokens; a redundant copy in this file)</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -419,11 +419,23 @@
 
     <div class="callout">
       <strong>Tied embeddings — one table, two jobs.</strong> <code>tie_word_embeddings: true</code>
-      means there is <em>no separate <code>lm_head.weight</code></em>. The <code>[V, H]</code>
-      embedding table is used twice: as a row lookup on the way in (token id ──▶ <code>H</code>) and
-      transposed as the output projection on the way out (<code>H</code> ──▶ <code>V</code> logits).
-      That one table is <code>151936 × 1024 ≈ 155.6M</code> params — <strong>~26% of the model's
-      ~596M</strong>. A quarter of “the weights” is just the vocabulary.
+      means the output projection <em>is</em> the embedding table — the <strong>same weights</strong>,
+      used twice: a row lookup on the way in (token id ──▶ <code>H</code>) and transposed as the
+      output projection on the way out (<code>H</code> ──▶ <code>V</code> logits). That one
+      <code>[V, H]</code> table is <code>151936 × 1024 ≈ 155.6M</code> params — <strong>~26% of the
+      model's ~596M</strong>. A quarter of “the weights” is just the vocabulary.
+    </div>
+    <div class="callout">
+      <strong>“Tied” is about the math, not the file.</strong> It's tempting to conclude “tied ⟹ the
+      file has no <code>lm_head.weight</code>.” <strong>Not so</strong> — and Qwen3-0.6B is the
+      counter-example: it's tied <em>and</em> ships a <code>lm_head.weight</code>
+      <strong>byte-for-byte identical</strong> to <code>embed_tokens</code>. So the file carries the
+      <code>[V, H]</code> table <strong>twice</strong>: 311 tensors, ~751M <strong>stored</strong>
+      params but only ~596M <strong>logical</strong> (the “0.6B”). Whether a tied export stores the
+      redundant copy is the exporter's choice — so <code>fs inspect</code> treats
+      <code>lm_head.weight</code> as <em>optional</em> when tied, and flags a present copy as
+      redundant rather than double-counting it. This is why we read the header instead of assuming:
+      see <a href="./10-transformer-block-anatomy.html">learning 10</a>.
     </div>
   </div>
 </section>
@@ -433,21 +445,41 @@
   <div class="container">
     <p class="eyebrow">Where it shows up</p>
     <h2>How this reads in <code>fs inspect</code></h2>
-    <p class="prose"><code>fs inspect</code> is built to make all of the above legible at a glance:</p>
-    <div class="checklist">
-      <ul>
-        <li>a <strong>dimension legend</strong> (the table above) printed first, so every shape has
-          a named source;</li>
-        <li>a grouped-by-layer tensor table whose last column is the <strong><code>in ──▶ out</code></strong>
-          arrow, not just the raw shape;</li>
-        <li>a <strong>cross-check</strong> that asserts the shapes line up with the config — every
-          Linear's <code>in</code> equals the width feeding it (<code>q/k/v ← H</code>,
-          <code>o ← 16·d</code>, <code>gate/up ← H</code>, <code>down ← I</code>),
-          <code>embed = [V, H]</code>, <code>lm_head</code> tied — and reports total params.</li>
-      </ul>
-    </div>
-    <p class="prose">These asserts are the M1 verification, and they carry into M2 so a mis-wired
-      matmul fails <em>loudly</em> instead of producing quiet garbage.</p>
+    <p class="prose"><code>fs inspect</code> makes all of the above legible at a glance. It prints
+      three parts:</p>
+    <ul class="checklist">
+      <li>a <strong>dimension legend</strong> (the table above), so every shape has a named source;</li>
+      <li>a grouped-by-layer tensor table whose last column is the <strong><code>in ──▶ out</code></strong>
+        arrow — one representative block labelled <code>× L</code>, not 28 copies;</li>
+      <li>a <strong>cross-check</strong> that derives the expected tensor set from <code>config.json</code>
+        and diffs it against the file (<code>q/k/v ← H</code>, <code>o ← 16·d</code>,
+        <code>gate/up ← H</code>, <code>down ← I</code>, <code>embed = [V, H]</code>, lm_head tied),
+        reporting <code>stored</code> vs <code>logical</code> params and any mismatch.</li>
+    </ul>
+    <p class="prose">Run against the real model, the table + verdict read (abridged):</p>
+    <pre><code>── tensors ─────────────────────────────────────────────────────────────────
+  TENSOR                          DTYPE SHAPE            PARAMS   in ──▶ out
+  global
+    model.embed_tokens.weight     BF16  [151936, 1024]  155,582,464  id ──▶ H  (row gather)
+  each block  × 28   (shown: layer 0)
+    self_attn.q_proj.weight       BF16  [2048, 1024]      2,097,152  1024 ──▶ 2048
+    self_attn.k_proj.weight       BF16  [1024, 1024]      1,048,576  1024 ──▶ 1024
+    self_attn.o_proj.weight       BF16  [1024, 2048]      2,097,152  2048 ──▶ 1024
+    mlp.gate_proj.weight          BF16  [3072, 1024]      3,145,728  1024 ──▶ 3072
+    mlp.down_proj.weight          BF16  [1024, 3072]      3,145,728  3072 ──▶ 1024
+    …                                                                (11 per block)
+  final
+    lm_head.weight   (tied)       BF16  [151936, 1024]  155,582,464  1024 ──▶ 151936
+
+── verdict ─────────────────────────────────────────────────────────────────
+  ✓ all 311 expected tensors present, shapes match the config
+  note: lm_head.weight present but tied — a redundant byte-identical copy of embed_tokens
+  params: 751,632,384 stored · 596,049,920 logical (the "0.6B")
+  embeddings: 155,582,464 = 26.1% of logical</code></pre>
+    <p class="prose">Every number here is <em>derived</em> — the GQA asymmetry (<code>2048</code> vs
+      <code>1024</code>), the deduped <code>596M</code>, the <code>26.1%</code> — nothing hard-coded.
+      That cross-check is the M1 verification, and its asserts carry into M2 so a mis-wired matmul
+      fails <em>loudly</em> instead of producing quiet garbage.</p>
     <div class="callout">
       <strong>Learning-first, then fast.</strong> Right now we assert shapes everywhere and convert
       nothing we don't have to. Making the math go fast (fusing, batching, skipping checks on the hot
@@ -464,8 +496,11 @@
       <ul>
         <li>⬅ <a href="./01-safetensors-vs-gguf.html">Learning 01 · safetensors vs GGUF</a> — where
           these shapes physically live on disk (the <code>[out, in]</code> blob).</li>
-        <li>➡ <code>docs/02-weights.md</code> — the M1 milestone writeup (uses this legend);
-          not yet written.</li>
+        <li>➡ <a href="./10-transformer-block-anatomy.html">Learning 10 · block anatomy</a> — what
+          each of these tensors <em>is</em> (q/k/v/o, QK-norm, SwiGLU, lm_head), and where the
+          architecture knowledge comes from.</li>
+        <li>➡ <a href="../02-weights.html">M1 · load the weights</a> — the milestone writeup that
+          uses this legend; <code>fs inspect</code> as the config↔weights handshake.</li>
         <li>🔧 <code>ds4</code>: <code>metal/dense.metal</code> (the matmul),
           <code>metal/flash_attn.metal</code> (head layout), <code>metal/glu.metal</code> (SwiGLU),
           <code>metal/norm.metal</code> (RMSNorm scale vectors).</li>

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 10 — Anatomy of a transformer block — Failed Star</title>
+<meta name="description" content="What each tensor in a transformer block actually is (q/k/v/o, QK-norm, SwiGLU, lm_head) — and the deeper question: where does architecture knowledge come from? The provenance chain, and why we read the header and reference, never memory.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/10-transformer-block-anatomy.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../02-weights.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 10 · what each tensor is, and how we know</p>
+    <h2>Anatomy of a transformer block</h2>
+    <p class="note-meta"><b>Context:</b> M1, building <code>expected_tensors</code> ·
+      <b>Status:</b> <span class="status-live">living</span></p>
+    <p class="lead"><a href="./05-reading-shapes.html">Learning 05</a> told us the
+      <em>shapes</em>. This note answers the two questions it leaves open — the ones you hit
+      the moment you try to list a model's tensors: <strong>what is each one?</strong> and
+      <strong>where does that knowledge come from?</strong></p>
+    <div class="callout">
+      <strong>The second question is the important one, so it goes first.</strong> You cannot
+      derive an architecture from a config, and you should not derive it from memory — memory
+      is a lossy cache, and it was already wrong about <code>lm_head</code>. The source of
+      truth is the file's header and the reference implementation.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.1–2.2 (p.42–52)</span>
+      <span class="chip chip--ds4">🔧 modeling_qwen3.py · the reference forward pass</span>
+      <span class="chip chip--rasch">🧭 Raschka · QK-norm / GQA / SwiGLU comparison</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PART 1 · PROVENANCE ============================== -->
+<section id="provenance">
+  <div class="container">
+    <p class="eyebrow">Part 1 · where the architecture comes from</p>
+    <h2>Not memory, not the config — a chain of trust</h2>
+    <p class="prose">The tempting shortcut is "I know transformers, I'll write the blocks
+      from memory." Two problems. <strong>Memory is a lossy cache and it's already been
+      wrong</strong> — it said "tied embeddings ⟹ no <code>lm_head.weight</code>"; the real
+      file has one (Part 3). And <strong>you cannot derive an architecture from
+      <code>config.json</code></strong> — the thesis of
+      <a href="./09-config.html">learning 09</a>: a config <em>parameterizes</em> a structure
+      that lives in code. Nothing in it announces <code>q_norm</code>.</p>
+    <p class="prose">So where does it come from? From the model's creators, down a
+      <strong>chain of trust</strong> — each link verified against the one above by
+      reproducing its <em>numbers</em>:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 330" role="img"
+           aria-label="A three-link provenance chain: the Qwen team designs, trains, and documents the model; HuggingFace transformers implements the reference and verifies it reproduces the creators' outputs; Failed Star reads that reference as spec and runs it as oracle, verifying our logits match. Each link is verified by reproducing numbers — golden vectors.">
+        <style>
+          .pbox { stroke-width: 1.5; }
+          .p1   { fill: var(--ember);     fill-opacity: .16; stroke: var(--ember); }
+          .p2   { fill: var(--ds4);       fill-opacity: .14; stroke: var(--ds4); }
+          .p3   { fill: var(--book);      fill-opacity: .16; stroke: var(--book); }
+          .ph   { font-family: var(--serif); font-size: 15px; fill: var(--text); }
+          .pk   { font-family: var(--mono);  font-size: 11px; fill: var(--text-dim); }
+          .parr { stroke: var(--text-mute); stroke-width: 1.5; fill: none; }
+          .pv   { font-family: var(--mono);  font-size: 10.5px; fill: var(--book); }
+          .pr   { font-family: var(--mono);  font-size: 10px;  fill: var(--text-mute); }
+        </style>
+        <defs>
+          <marker id="ah10p" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+
+        <!-- link 1 -->
+        <rect class="pbox p1" x="150" y="18" width="400" height="66" rx="10"/>
+        <text x="350" y="44" text-anchor="middle" class="ph">Qwen team (Alibaba)</text>
+        <text x="350" y="64" text-anchor="middle" class="pk">designs · trains · documents → report + reference code + weights</text>
+        <!-- arrow 1→2 -->
+        <path class="parr" d="M350 84 L350 122" marker-end="url(#ah10p)"/>
+        <text x="362" y="107" text-anchor="start" class="pv">verify: reproduce the creators' outputs ← golden vectors</text>
+
+        <!-- link 2 -->
+        <rect class="pbox p2" x="150" y="130" width="400" height="66" rx="10"/>
+        <text x="350" y="156" text-anchor="middle" class="ph">HuggingFace transformers</text>
+        <text x="350" y="176" text-anchor="middle" class="pk">implements modeling_qwen3.py from the report + reference</text>
+        <!-- arrow 2→3 -->
+        <path class="parr" d="M350 196 L350 234" marker-end="url(#ah10p)"/>
+        <text x="362" y="219" text-anchor="start" class="pv">verify: our logits match, to tolerance ← golden vectors</text>
+
+        <!-- link 3 -->
+        <rect class="pbox p3" x="150" y="242" width="400" height="66" rx="10"/>
+        <text x="350" y="268" text-anchor="middle" class="ph">Failed Star (us)</text>
+        <text x="350" y="288" text-anchor="middle" class="pk">read HF as spec · run HF as oracle · write our own Rust</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ember)"></i> creator — invents the design</span>
+        <span><i style="background:var(--ds4)"></i> reference — the canonical code</span>
+        <span><i style="background:var(--book)"></i> us — read + run + verify</span>
+      </div>
+      <figcaption>The design choices — QK-norm, GQA, SwiGLU — were <em>invented</em> by the
+        creators and <em>documented</em>. Everyone downstream implements a documented design
+        and confirms it by getting the same numbers.</figcaption>
+    </figure>
+
+    <div class="callout prose">
+      <strong>The evidence is in the file's own header.</strong> <code>modeling_qwen3.py</code>
+      opens with <code>Copyright 2025 The Qwen team, Alibaba Group and the HuggingFace Inc.
+      team.</code> — the creator and the reference library named as <em>co-authors</em>. The
+      chain of trust isn't a metaphor; it's a copyright line. (The file is even auto-generated
+      from <code>modular_qwen3.py</code>, which the model team often contributes directly.)
+    </div>
+
+    <h3>What <code>transformers</code> is <em>for us</em> — three roles, kept distinct</h3>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Spec &amp; oracle</h3>
+        <p class="prose" style="margin:0"><strong>Read</strong> it to learn what tensors exist
+          and how they're wired (the names <em>are</em> the PyTorch attribute paths:
+          <code>self.q_proj</code> → <code>…self_attn.q_proj.weight</code>). <strong>Run</strong>
+          it at M2 to dump golden logits and assert our output matches.</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Never copied</h3>
+        <p class="prose" style="margin:0">We <strong>copy the architecture, never the code</strong>.
+          The weights are only meaningful under Qwen3's exact computation, so our math must
+          match — but we express it in our own tight Rust and prove equivalence with
+          <em>numbers</em>, not by diffing source.</p>
+      </div>
+    </div>
+
+    <h3>Three sources of truth, in order of authority</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>source</th><th>answers</th><th>for <code>fs inspect</code></th></tr></thead>
+        <tbody>
+          <tr><td>the file header</td><td><em>what tensors exist</em> + shapes</td><td>ground truth we cross-check against</td></tr>
+          <tr><td>the reference code</td><td><em>how each tensor is used</em> (the forward pass)</td><td>how we know what to implement (M2)</td></tr>
+          <tr><td>the config</td><td><em>the dims</em> that size everything</td><td><a href="./09-config.html">learning 09</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">So <code>expected_tensors</code> derives the spec from the <strong>config</strong>,
+      then diffs it against the <strong>header</strong>. Any disagreement is a loud failure at
+      load time — not quiet garbage in M2.</p>
+  </div>
+</section>
+
+<!-- ============================== PART 2 · ANATOMY ============================== -->
+<section id="anatomy">
+  <div class="container">
+    <p class="eyebrow">Part 2 · tensor by tensor</p>
+    <h2>What each one is</h2>
+    <p class="prose">Straight from the real header: <strong>311 tensors = 3 global + 11 per
+      block × 28 layers.</strong> A block is <strong>two sub-layers</strong> — attention, then
+      an MLP — each wrapped as <code>norm → sub-layer → add back to the residual stream</code>.
+      That wrapping is why you see two layernorms per block <em>plus</em> two more norms inside
+      attention:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 250" role="img"
+           aria-label="One pre-norm block: the H-wide residual stream flows left to right. It branches into an RMSNorm then the attention sub-layer (q/k/v projections, QK-norm on queries and keys, attention, o projection), then adds back. Then branches into an RMSNorm then the SwiGLU MLP (gate and up projections, SiLU gate times up, down projection), then adds back.">
+        <style>
+          .bus  { stroke: var(--ember); stroke-width: 2.5; fill: none; }
+          .skip { stroke: var(--text-mute); stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; }
+          .norm { fill: var(--dusk);  fill-opacity: .18; stroke: var(--dusk);  stroke-width: 1.3; }
+          .attn { fill: var(--ds4);   fill-opacity: .13; stroke: var(--ds4);   stroke-width: 1.3; }
+          .mlp  { fill: var(--book);  fill-opacity: .14; stroke: var(--book);  stroke-width: 1.3; }
+          .add  { fill: var(--surface); stroke: var(--ember); stroke-width: 1.5; }
+          .bl   { font-family: var(--serif); font-size: 12.5px; fill: var(--text); }
+          .bk   { font-family: var(--mono);  font-size: 9.5px;  fill: var(--text-dim); }
+          .bx   { font-family: var(--mono);  font-size: 12px;   fill: var(--ember); }
+          .bbus { font-family: var(--mono);  font-size: 10px;   fill: var(--text-mute); }
+        </style>
+        <defs>
+          <marker id="ah10b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--ember)"/>
+          </marker>
+        </defs>
+
+        <!-- residual bus -->
+        <line class="bus" x1="20" y1="150" x2="680" y2="150" marker-end="url(#ah10b)"/>
+        <text x="26" y="142" class="bbus">H-wide residual stream</text>
+
+        <!-- attention sublayer -->
+        <rect class="norm" x="120" y="96" width="70" height="40" rx="8"/>
+        <text x="155" y="112" text-anchor="middle" class="bl">RMSNorm</text>
+        <text x="155" y="127" text-anchor="middle" class="bk">input_ln</text>
+        <rect class="attn" x="205" y="70" width="150" height="66" rx="8"/>
+        <text x="280" y="90" text-anchor="middle" class="bl">Attention</text>
+        <text x="280" y="106" text-anchor="middle" class="bk">q·k·v_proj → QK-norm</text>
+        <text x="280" y="120" text-anchor="middle" class="bk">→ attention → o_proj</text>
+        <circle class="add" cx="390" cy="150" r="12"/>
+        <text x="390" y="154" text-anchor="middle" class="bx">+</text>
+        <!-- attn wiring -->
+        <path class="bus" d="M120 150 L120 116 L120 116" marker-end="url(#ah10b)"/>
+        <path class="skip" d="M120 116 L190 116"/>
+        <path class="skip" d="M355 103 L390 103 L390 138"/>
+        <path class="skip" d="M90 150 C90 60 300 40 390 40 L390 138" />
+
+        <!-- mlp sublayer -->
+        <rect class="norm" x="440" y="96" width="70" height="40" rx="8"/>
+        <text x="475" y="112" text-anchor="middle" class="bl">RMSNorm</text>
+        <text x="475" y="127" text-anchor="middle" class="bk">post_attn_ln</text>
+        <rect class="mlp" x="525" y="70" width="120" height="66" rx="8"/>
+        <text x="585" y="90" text-anchor="middle" class="bl">SwiGLU MLP</text>
+        <text x="585" y="106" text-anchor="middle" class="bk">gate·up → SiLU·×</text>
+        <text x="585" y="120" text-anchor="middle" class="bk">→ down_proj</text>
+        <circle class="add" cx="662" cy="150" r="12"/>
+        <text x="662" y="154" text-anchor="middle" class="bx">+</text>
+        <path class="skip" d="M440 116 L510 116"/>
+        <path class="skip" d="M645 103 L662 103 L662 138"/>
+        <path class="skip" d="M410 150 C410 60 560 40 662 40 L662 138"/>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ember)"></i> residual stream (H)</span>
+        <span><i style="background:var(--dusk)"></i> RMSNorm (scale)</span>
+        <span><i style="background:var(--ds4)"></i> attention</span>
+        <span><i style="background:var(--book)"></i> SwiGLU MLP</span>
+      </div>
+      <figcaption>Pre-norm: every sub-layer reads a normalized copy of the bus and adds its
+        result back. Two sub-layers ⟹ two layernorms; QK-norm is a third and fourth norm
+        <em>inside</em> attention.</figcaption>
+    </figure>
+
+    <h3>The 3 global tensors</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>tensor</th><th>shape</th><th>what it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>model.embed_tokens.weight</code></td><td><code>[V, H]</code></td><td>the vocabulary table — a token id is a <em>row index</em> (a gather, not a matmul). See <a href="./04-embedding-models.html">learning 04</a>.</td></tr>
+          <tr><td><code>model.norm.weight</code></td><td><code>[H]</code></td><td>one final RMSNorm on the output stream before the head.</td></tr>
+          <tr><td><code>lm_head.weight</code></td><td><code>[V, H]</code></td><td>the <em>output</em> projection: final H-vector → <code>V</code> logits. Tied to <code>embed_tokens</code> — Part 3.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The 11 tensors of one block</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>tensor</th><th>shape</th><th>role</th></tr></thead>
+        <tbody>
+          <tr><td><code>input_layernorm</code></td><td><code>[H]</code></td><td>RMSNorm the bus before attention (a scale vector, not a matrix).</td></tr>
+          <tr><td><code>self_attn.q_proj</code></td><td><code>[2048, 1024]</code></td><td>the <strong>query</strong>: "what am I looking for?" (16 heads × 128)</td></tr>
+          <tr><td><code>self_attn.k_proj</code></td><td><code>[1024, 1024]</code></td><td>the <strong>key</strong>: "what do I offer as a match?" (8 kv heads × 128)</td></tr>
+          <tr><td><code>self_attn.v_proj</code></td><td><code>[1024, 1024]</code></td><td>the <strong>value</strong>: "what do I carry if matched?"</td></tr>
+          <tr><td><code>self_attn.q_norm</code></td><td><code>[128]</code></td><td><strong>QK-norm</strong> on each query vector before scoring — <em>the one you can't guess</em>.</td></tr>
+          <tr><td><code>self_attn.k_norm</code></td><td><code>[128]</code></td><td>QK-norm on each key vector.</td></tr>
+          <tr><td><code>self_attn.o_proj</code></td><td><code>[1024, 2048]</code></td><td>project the concatenated head outputs back onto the H-wide bus.</td></tr>
+          <tr><td><code>post_attention_layernorm</code></td><td><code>[H]</code></td><td>RMSNorm the bus before the MLP.</td></tr>
+          <tr><td><code>mlp.gate_proj</code></td><td><code>[3072, 1024]</code></td><td>SwiGLU gate: <code>H → I</code>, then squashed by SiLU.</td></tr>
+          <tr><td><code>mlp.up_proj</code></td><td><code>[3072, 1024]</code></td><td>SwiGLU value: <code>H → I</code>, multiplied by the gated activation.</td></tr>
+          <tr><td><code>mlp.down_proj</code></td><td><code>[1024, 3072]</code></td><td><code>I → H</code>, back onto the bus.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout prose">
+      <strong>QK-norm — the poster child for "read the reference, don't reason."</strong>
+      GPT-2 and Llama-1 have no such tensors; nothing about attention <em>requires</em> them.
+      You know they exist only because the reference code has them and the header lists
+      <code>q_norm.weight</code> / <code>k_norm.weight</code>. No config field announces them.
+    </div>
+    <pre><code>self.q_norm = Qwen3RMSNorm(self.head_dim, eps=config.rms_norm_eps)   # and k_norm
+...
+query_states = self.q_norm(self.q_proj(hidden_states)...)            # applied before attention</code></pre>
+
+    <p class="prose"><strong>SwiGLU</strong> is why there are <em>two</em> "up" projections. A
+      vanilla FFN is <code>down(act(up(x)))</code>; SwiGLU splits the up into a gate and a value:</p>
+    <pre><code>MLP(x) = down_proj( SiLU(gate_proj(x)) · up_proj(x) )
+                     └── the gate ──┘   └─ the value ─┘     (· = element-wise)</code></pre>
+    <p class="prose">Two <code>[I,H]</code> tensors + one <code>[H,I]</code> is the SwiGLU
+      signature; a single up-projection would be a plain FFN.</p>
+  </div>
+</section>
+
+<!-- ============================== PART 3 · LM_HEAD SURPRISE ============================== -->
+<section id="surprise">
+  <div class="container">
+    <p class="eyebrow">Part 3 · read, don't assume</p>
+    <h2>The <code>lm_head</code> surprise</h2>
+    <p class="prose"><code>config.json</code> has <code>tie_word_embeddings: true</code>.
+      <strong>"Tied" means the output projection <em>is</em> the embedding table</strong> — the
+      same weights, used twice. It's a statement about the <em>math</em>, not the <em>file</em>.</p>
+    <p class="prose">Memory said "tied ⟹ the file omits <code>lm_head.weight</code>." The header
+      says otherwise — <code>lm_head.weight [151936, 1024]</code> is present, and its raw bytes
+      are <strong>byte-for-byte identical</strong> to <code>embed_tokens</code>. Qwen3-0.6B is
+      tied <em>and</em> ships a redundant copy. The consequences:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>count</th><th>value</th></tr></thead>
+        <tbody>
+          <tr><td>stored tensors</td><td><strong>311</strong></td></tr>
+          <tr><td>stored params (naive sum)</td><td><code>751,632,384</code> (~751M)</td></tr>
+          <tr><td>logical params (dedup the tied copy)</td><td><code>596,049,920</code> — the "<strong>0.6B</strong>"</td></tr>
+          <tr><td>embedding share of logical</td><td><strong>26.1%</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">A quarter of the model is the vocabulary table — stored <em>twice</em>. So
+      <code>expected_tensors</code> marks <code>lm_head</code> <strong>optional when tied</strong>,
+      and <code>cross_check</code> reports <code>stored</code> and <code>logical</code> separately,
+      flagging the redundant copy as a <em>note</em>, not a failure. Had we coded from the
+      memory-assumption, the cross-check would have called a real tensor an "extra" and reported
+      a false failure on the real model.</p>
+    <div class="callout">
+      <strong>The lesson, one line:</strong> derive the expectation from the config, but confirm
+      it against the header and the reference — never against recall.
+    </div>
+    <p class="prose"><code>fs inspect models/qwen3-0.6b</code> now prints exactly this
+      reconciliation — the deduped <code>596M</code>, the redundant-copy note, the
+      <code>26.1%</code> share — all <em>derived</em> from <code>config.json</code> and checked
+      against the file, none of it hard-coded. See the abridged output in
+      <a href="../02-weights.html#output">M1 · load the weights</a>.</p>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — the
+          <em>shapes</em> of these same tensors (<code>[out,in]</code>, GQA, tied-embedding math).</li>
+        <li><a href="./09-config.html">Learning 09 · config.json</a> — why a config
+          <em>parameterizes</em> a structure that lives in code (the root of Part 1).</li>
+        <li><a href="./04-embedding-models.html">Learning 04 · embedding models</a> —
+          <code>embed_tokens</code> as a gather, and the three senses of "embedding."</li>
+        <li>➡ <a href="../02-weights.html">M1 · load the weights</a> — the milestone this
+          anatomy feeds; <code>fs inspect</code> as the config↔weights handshake.</li>
+        <li>🔧 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py"><code>modeling_qwen3.py</code></a>
+          — the reference forward pass (spec + M2 oracle) ·
+          📄 <a href="https://arxiv.org/abs/2505.09388">Qwen3 Technical Report</a> — the design
+          rationale · Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/10-transformer-block-anatomy.md"><code>docs/learnings/10-transformer-block-anatomy.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/10-transformer-block-anatomy.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

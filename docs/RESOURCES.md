@@ -127,9 +127,33 @@ it; we don't build its CUDA/ROCm/server/agent/distributed parts.
 
 ---
 
-## 4. Model / tooling references (to fill in at M0/M1)
-- Starter model card + `config.json` + tokenizer files (Llama-3.2-1B or
-  Qwen3-0.6B) — *link once chosen.*
+## 4. Model / tooling references
+
+### Qwen3-0.6B — our starter model (the provenance chain)
+
+The architecture we implement was **designed and trained by the Qwen team
+(Alibaba)** and *documented*, then implemented in the reference library. We can't
+derive it from the config (a config only *parameterizes* an architecture whose
+structure lives in code — see [`learnings/09-config.md`](learnings/09-config.md));
+we read the paper + reference code and verify by reproducing numbers. The full
+"who decided this and how do we know" story is
+[`learnings/10-transformer-block-anatomy.md`](learnings/10-transformer-block-anatomy.md).
+
+| What | Link | Role for us |
+|---|---|---|
+| Model card + assets | <https://huggingface.co/Qwen/Qwen3-0.6B> | the `config.json`, `tokenizer.json`, `model.safetensors` we load |
+| **Technical report** | [arXiv:2505.09388](https://arxiv.org/abs/2505.09388) | the *design*: why QK-norm, GQA, SwiGLU — the creators' word |
+| **Reference code** (generated) | [`modeling_qwen3.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py) | the **spec** we read + the **oracle** we'll run at M2 |
+| Reference code (true source) | [`modular_qwen3.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modular_qwen3.py) | `modeling_*.py` is auto-generated from this |
+| Config class | [`configuration_qwen3.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/configuration_qwen3.py) | every field of `config.json`, with defaults |
+
+> The reference is copyrighted **"2025 The Qwen team, Alibaba Group and the
+> HuggingFace Inc. team"** — the chain of trust (creator → reference lib → us) is
+> right there in the file header. We **read** it as spec and **run** it as oracle;
+> we never port its code. We copy the *architecture* (the weights demand it), never
+> the *code* (we prove equivalence with golden numbers). See learning 10.
+
+### Other tooling (fill in as we reach it)
 - Rust ↔ Metal via ObjC runtime FFI (`objc2` runtime; we avoid the `metal`
   convenience crate) — *capture the exact approach at M6.*
 - Golden-vector script (HF `transformers` one-shot logit dump) — *add at M2.*

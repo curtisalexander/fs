@@ -101,19 +101,19 @@ fs/
 
 ## Status
 
-🌱 **M0 — Tokenizer: ✅ done. M1 — Load the weights: in progress.** The
-byte-level BPE tokenizer is implemented and verified — `fs tokenize` /
-`fs detokenize` run end-to-end against Qwen3-0.6B, loading vocab + merges + regex
-+ special tokens from the single `tokenizer.json` (14/14 golden cases pass; see
-[`docs/01-tokenizer.md`](docs/01-tokenizer.md)). Next step: parse the safetensors
-weights and `config.json` so `fs inspect model/` can print the architecture and
-tensor table.
+🌱 **M0 — Tokenizer: ✅ done. M1 — Load the weights: ✅ done. M2 — Forward pass:
+next.** `fs inspect models/qwen3-0.6b` loads `config.json` + `model.safetensors`,
+derives the expected tensor set from the config, cross-checks the file against it,
+and prints a shape-first legend + tensor table + verdict — the real model checks
+clean (311 tensors, 596M logical params; see [`docs/02-weights.md`](docs/02-weights.md)).
+The weights are mmap'd zero-copy via raw POSIX FFI, bf16 kept lazy. Next step: the
+forward pass (embeddings → transformer blocks → logits), CPU-first.
 
 **Milestones** (the full curriculum, with cross-links, lives in [`PLAN.md`](PLAN.md)):
 
 - [x] **M0 — Tokenizer** — text ↔ token IDs, verified against the real vocab
-- [ ] **M1 — Load the weights** ← *current*
-- [ ] M2 — Forward pass → logits
+- [x] **M1 — Load the weights** — `fs inspect`; tensor set cross-checked vs the config
+- [ ] **M2 — Forward pass → logits** ← *current*
 - [ ] M3 — Sampling → generation
 - [ ] M4 — KV cache
 - [ ] M5 — Quantization

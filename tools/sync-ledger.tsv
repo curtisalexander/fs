@@ -9,6 +9,7 @@ docs/index.html	docs/00-map.md,docs/prerequisites.md	6809cec
 docs/prerequisites.html	docs/prerequisites.md	6809cec
 docs/diagrams.html	docs/00-map.md	6809cec
 docs/01-tokenizer.html	docs/01-tokenizer.md	6809cec
+docs/02-weights.html	docs/02-weights.md	2015112
 docs/learnings/index.html	docs/learnings/README.md	6809cec
 docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	6809cec
 docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	6809cec
@@ -18,3 +19,4 @@ docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	6809ce
 docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	6809cec
 docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	6809cec
 docs/learnings/09-config.html	docs/learnings/09-config.md	6809cec
+docs/learnings/10-transformer-block-anatomy.html	docs/learnings/10-transformer-block-anatomy.md	2015112

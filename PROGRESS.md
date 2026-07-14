@@ -4,9 +4,106 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M1 — Load the weights (◐ building, bottom-up). **Three helpers landed:** `Mmap::open` (raw POSIX `mmap` FFI), `SafeTensors::load` (the header reader on top of it), and `Config::load` (`config.json` → the 7 named dims) — all implemented + verified against the real assets. Design (locked earlier): mmap via raw FFI, lazy bf16 (raw bytes, convert on access), shape-first `fs inspect` cross-checking the tensor set against `config.json`. **Next: `expected_tensors`/`cross_check`** (config-derived spec vs. the loaded directory) then the `render_*` table + `run` to wire `fs inspect` end to end. M0 — Tokenizer ✅ complete (14/14 golden).
-**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B (tokenizer in `src/tokenizer.rs`, all four BPE stages + special tokens). **M1 in progress:** `src/safetensors.rs::Mmap::open` maps the whole file zero-copy via raw `mmap`/`munmap` FFI (RAII `munmap` on `Drop`); `SafeTensors::load` reads the `[u64 len][JSON header][blob]` layout into a `Tensor` directory (name→index), sorted into physical blob order, with per-entry validation (`end ≤ blob`, byte span == `shape·dtype.size()`) and `__metadata__` captured separately; `src/config.rs::Config::load` parses `config.json` via `serde_json::Value` with per-field typed extractors (no silent defaults; miss → `MissingField`, wrong type/range → `BadField`). **31 unit + 2 golden integration tests green; clippy clean.** Reality checks load the real 1.4 GB weights (`format=pt`, `embed_tokens = [151936,1024]` bf16) and the real `config.json` (all 7 dims + scalars + derived `q_width=2048`/`kv_width=1024`/`gqa_group=2`). Still `todo!()` in M1 order: `expected_tensors`/`cross_check` → `render_*`/`run`. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md); `docs/02-weights.md` owed at M1 close.
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings now have their own section** (`docs/learnings/index.html` + a page per note, in the site nav) — the owed HTML-graduation debt for `learnings/01–07` is **cleared**.
+**Current milestone:** M2 — Forward pass → logits (◐ next). **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/02-weights.md`](docs/02-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
+**Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md), [`docs/02-weights.md`](docs/02-weights.md) (both graduated to HTML).
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/02-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../02-weights.html`).
+
+---
+
+## Session 13 — 2026-07-14 — M1 docs graduated to HTML; M1 flipped ☑ → M2
+
+**Did:** wrote the M1 milestone doc and graduated the M1 learnings to the site, then
+flipped the milestone.
+
+**New docs:** [`docs/02-weights.md`](docs/02-weights.md) (Markdown source of truth —
+"need both" from the weights side, the loading stack, the safetensors format, the
+cross-check + tied-`lm_head` gotcha, the real `fs inspect` output, layered verify,
+three-way cross-links) → hand-distilled to `docs/02-weights.html` (milestone template:
+need-both figure, 6-stage loading pipeline, **safetensors-layout SVG**, mmap/bf16 split,
+params table, full output, checklist). Graduated `learnings/10` →
+`docs/learnings/10-transformer-block-anatomy.html` with three theme-aware SVGs
+(**provenance chain**, safetensors layout, **pre-norm block**), plus tables for all 14
+tensors, the QK-norm callout, the SwiGLU formula, the lm_head surprise.
+
+**Site wiring:** added the Learning 10 card to `learnings/index.html` ("Eight" → "Nine"),
+swept the "Milestones" nav to the current milestone (`02-weights.html`) across all 12
+pages, linked M0 → M1 forward, added two `tools/sync-ledger.tsv` rows (stamped `2015112`;
+re-stamp with `sync-check.sh --update` on landing). **QA:** tags balanced on both new
+pages, `<style>` scoped to SVGs, **0 broken links site-wide**, sync-check **in sync**.
+
+**`05.html` reconciled with `05.md`:** it still carried the *wrong* "no separate
+`lm_head.weight`" claim — fixed to the "tied is about the math, not the file" note
+(311/751M/596M, byte-identical redundant copy), added the abridged `fs inspect` output
+block ("every number derived"), corrected the lm_head table row (`[V,H]`, redundant),
+updated cross-links (→ `10` + `../02-weights.html`).
+
+**M1 flipped ☑ (all four places, per dev-loop):** `PLAN.md` legend (`M1 ☑`, `M2 ◐
+current`), this PROGRESS **Current milestone** line, `README.md` status blurb +
+checklist (`[x] M1`, `[ ] M2 ← current`), and `docs/index.html` progress strip
+(`ms--done` M0+M1, `ms--now` M2, **2/7**, bar **29%**).
+
+**Next:** M2 — forward pass → logits (embeddings → RMSNorm → RoPE → GQA attention →
+SwiGLU → logits), CPU/Rust first, verified against a golden logit vector. Graduate
+`learnings/08` (row-major & strides) when M2 first indexes a weight element-by-element.
+
+---
+
+## Session 12 — 2026-07-14 — M1 engine complete: `fs inspect` runs end to end
+
+**Did:** finished the M1 engine in one arc — `expected_tensors` → `cross_check` →
+the `render_*` trio → `run` — and wired `fs inspect` all the way through, verified
+against the real 1.4 GB model. Started with a teaching detour the file forced on us.
+
+**The provenance detour (before any code).** Dumping the real safetensors header to
+ground the work caught a plan-vs-reality mismatch: `config.json` says
+`tie_word_embeddings: true`, yet the file **ships `lm_head.weight`** — and its bytes
+are **identical** to `embed_tokens`. The plan (and learning 05) had assumed "tied ⟹
+no lm_head in file"; coding from that would have flagged a real tensor as an extra
+and reported a false failure. Fixed the scaffold docs + learning 05, and answered
+the deeper question — *where does architecture knowledge come from?* — with a new
+note **[`learnings/10-transformer-block-anatomy.md`](docs/learnings/10-transformer-block-anatomy.md)**:
+the **provenance chain** (Qwen/Alibaba designs+documents → HF `transformers`
+implements the reference → we read as spec, run as oracle, verify by golden numbers;
+the reference's own copyright line names both parties), the "read the header/reference,
+not memory" rule, and the tensor-by-tensor anatomy (q/k/v/o, QK-norm, SwiGLU,
+lm_head). Links captured in [`RESOURCES.md §4`](docs/RESOURCES.md) (technical report
+arXiv:2505.09388, `modeling_qwen3.py`, config class, model card) + a memory pointer.
+
+**`expected_tensors(cfg)` (`src/inspect.rs`):** the config-derived spec as code —
+`embed_tokens [V,H]`, the 11-tensor block × L (q/k/v/o with the GQA asymmetry, q/k
+norms `[d]`, the two layernorms, SwiGLU gate/up/down), `model.norm [H]`, and
+`lm_head [V,H]` **`optional = tie_word_embeddings`**. Each row annotated with its
+`in ─▶ out` arrow. 5 unit tests incl. a reality anchor (real config ⟹ exactly 311).
+
+**`cross_check(cfg, st)`:** three passes — walk the spec (present→check shape,
+optional-absent→ok, required-missing→problem), reverse-check for unexpected extras,
+and total params (`stored` naive sum vs `logical` deduping a tied `lm_head`
+**confirmed byte-identical** to embed; a differing tied head gets a distinct note).
+Added `embed_params` so the verdict shows the embedding share standalone. 7 tests
+incl. the **M1 payoff**: the real file cross-checks clean at 311 / 751,632,384 /
+596,049,920 / 26.1%.
+
+**`render_legend`/`render_table`/`render_verdict` + `run`:** the shape-first output
+learning 05 described — dimension legend (derived widths + GQA group), one
+representative `× L` block with the `in ──▶ out` column (not 28 copies), and the
+✓/✗ verdict with problems, notes, stored/logical params + embedding share. `run`
+loads both halves, prints all three, returns cleanliness → CLI exit code (a shape
+mismatch is a *failure*, not a warning). Helpers: `commafy`, `arrow_for`,
+`BLOCK_SUFFIXES`. Removed the scaffold's `#![allow(dead_code)]` (all wired now).
+
+**Verify:** **51 unit + 2 golden green; `cargo clippy --all-targets` clean.**
+`fs inspect models/qwen3-0.6b` prints the full report and exits 0. Synthetic `run`
+tests cover clean-exit and shape-mismatch-exit-1 with no real assets (fresh-checkout
+safe); the real-model tests are gated + confirmed running.
+
+**Doc sync:** learning 05's "how this shows up in `fs inspect`" now carries the real
+(abridged) output — every number derived, nothing hard-coded; learning 10 §3 points
+at it. **Still owed at M1 close:** `docs/02-weights.md` (milestone writeup, echoing
+config↔weights "need both" from the weights side), then graduate `learnings/10` (+
+the updated `05`) to HTML and register in the sync ledger.
+
+**Next:** write `docs/02-weights.md`, then the HTML graduation. That closes M1 → M2
+(forward pass → logits).
 
 ---
 

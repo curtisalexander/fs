@@ -163,25 +163,62 @@ transformer's weights.
 
 ### Tied embeddings — one table, two jobs
 
-`tie_word_embeddings: true` means there is **no separate `lm_head.weight`**. The
-`[V, H]` embedding table is used twice: as a row lookup on the way in (token id ─▶
-`H`), and transposed as the output projection on the way out (`H` ─▶ `V` logits).
-That one table is `151936 × 1024 ≈ 155.6M` params — **~26% of the model's ~596M**.
+`tie_word_embeddings: true` means the output projection *is* the embedding table —
+the **same weights**, used twice: as a row lookup on the way in (token id ─▶ `H`),
+and transposed as the output projection on the way out (`H` ─▶ `V` logits). That one
+`[V, H]` table is `151936 × 1024 ≈ 155.6M` params — **~26% of the model's ~596M**.
 A quarter of "the weights" is just the vocabulary.
+
+> **"Tied" is about the math, not the file.** It's tempting to conclude "tied ⟹ the
+> file has no `lm_head.weight`." **Not so** — and Qwen3-0.6B is the counter-example.
+> It's tied *and* ships a `lm_head.weight` that is **byte-for-byte identical** to
+> `embed_tokens`. So the file carries the `[V, H]` table **twice**: 311 tensors,
+> ~751M **stored** params, but only ~596M **logical** params (the "0.6B"). Whether a
+> tied export stores the redundant copy is the exporter's choice — so `fs inspect`
+> treats `lm_head.weight` as *optional* when tied, and if present, flags it as a
+> redundant duplicate rather than counting it twice. This is why we read the actual
+> header instead of assuming: see [`learning 10`](10-transformer-block-anatomy.md).
 
 ## How this shows up in `fs inspect` (and in the code)
 
-`fs inspect` is built to make all of the above legible at a glance:
+`fs inspect` makes all of the above legible at a glance. It prints three parts:
 
-- a **dimension legend** (the table above) printed first, so every shape has a
-  named source;
-- a grouped-by-layer tensor table whose last column is the **`in ──▶ out`** arrow,
-  not just the raw shape;
-- a **cross-check** that asserts the shapes line up with the config — every
-  Linear's `in` equals the width feeding it (`q/k/v ← H`, `o ← 16·d`,
-  `gate/up ← H`, `down ← I`), `embed = [V, H]`, lm_head tied — and reports total
-  params. These asserts are the M1 verification, and they carry into M2 so a
-  mis-wired matmul fails *loudly* instead of producing quiet garbage.
+1. a **dimension legend** (the table above), so every shape has a named source;
+2. a grouped-by-layer tensor table whose last column is the **`in ──▶ out`** arrow,
+   not just the raw shape — one representative block labelled `× L`, not 28 copies;
+3. a **cross-check** that derives the expected tensor set from `config.json` and
+   diffs it against the file — every Linear's `in` equals the width feeding it
+   (`q/k/v ← H`, `o ← 16·d`, `gate/up ← H`, `down ← I`), `embed = [V, H]`, lm_head
+   tied — reporting `stored` vs `logical` params and any mismatch.
+
+Run against the real model, the table + verdict read (abridged):
+
+```text
+── tensors ─────────────────────────────────────────────────────────────────
+  TENSOR                          DTYPE SHAPE            PARAMS   in ──▶ out
+  global
+    model.embed_tokens.weight     BF16  [151936, 1024]  155,582,464  id ──▶ H  (row gather)
+  each block  × 28   (shown: layer 0)
+    self_attn.q_proj.weight       BF16  [2048, 1024]      2,097,152  1024 ──▶ 2048
+    self_attn.k_proj.weight       BF16  [1024, 1024]      1,048,576  1024 ──▶ 1024
+    self_attn.o_proj.weight       BF16  [1024, 2048]      2,097,152  2048 ──▶ 1024
+    mlp.gate_proj.weight          BF16  [3072, 1024]      3,145,728  1024 ──▶ 3072
+    mlp.down_proj.weight          BF16  [1024, 3072]      3,145,728  3072 ──▶ 1024
+    …                                                                (11 per block)
+  final
+    lm_head.weight   (tied)       BF16  [151936, 1024]  155,582,464  1024 ──▶ 151936
+
+── verdict ─────────────────────────────────────────────────────────────────
+  ✓ all 311 expected tensors present, shapes match the config
+  note: lm_head.weight present but tied — a redundant byte-identical copy of embed_tokens
+  params: 751,632,384 stored · 596,049,920 logical (the "0.6B")
+  embeddings: 155,582,464 = 26.1% of logical
+```
+
+Every number here is *derived* — the GQA asymmetry (`2048` vs `1024`), the deduped
+`596M`, the `26.1%` — nothing hard-coded. That cross-check is the M1 verification,
+and its asserts carry into M2 so a mis-wired matmul fails *loudly* instead of
+producing quiet garbage.
 
 > **Learning-first, then fast.** Right now we assert shapes everywhere and convert
 > nothing we don't have to. Making the math go fast (fusing, batching, skipping

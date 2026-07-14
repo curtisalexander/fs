@@ -35,7 +35,7 @@ Text ↔ token IDs. BPE encode/decode against the chosen model's real vocabulary
 - 📖 §2.2 (p.46) · 🔧 `reference/ds4/ds4.c` (BPE + `str_i32_table` hash table) · 🧭 Raschka "LLM from scratch" BPE.
 - **Why first:** no GPU, no weights, self-contained; it's the model's front door.
 
-## M1 — Load the weights  ◐  *(current)*
+## M1 — Load the weights  ☑  *(done — see [`docs/02-weights.md`](docs/02-weights.md))*
 Parse the model file format and map every tensor (names, shapes, dtypes) into
 memory. Read `config.json` (layers, dims, heads, vocab).
 - **Artifact:** `fs inspect model/` prints the architecture + tensor table.
@@ -46,7 +46,7 @@ memory. Read `config.json` (layers, dims, heads, vocab).
   natively; trivial to parse; clean bf16 for correctness), then **GGUF at M5**
   alongside ds4's parser when quantization is the lesson. ds4 itself is GGUF-only.
 
-## M2 — Forward pass → logits  ☐  *(the "it understands" milestone)*
+## M2 — Forward pass → logits  ◐  *(current — the "it understands" milestone)*
 Embeddings → N transformer blocks (RMSNorm, RoPE, attention, SwiGLU) → final norm
 → logits. **CPU/Rust first** (slow but clear), correctness over speed.
 - **Artifact:** `fs logits "The capital of France is"` prints top-k next tokens.
@@ -107,5 +107,5 @@ the HTML site (its own nav entry + index), hand-distilled like the rest, linked
 from the doc/milestone that references them (link the `.html`, not the raw `.md`).
 HTML is where learnings earn nicer diagrams and *sparing* interactivity (à la
 `diagrams.html`). See [`docs/dev-loop.md`](docs/dev-loop.md) → "Learnings → the
-site's Learnings section" for the ritual. *(All notes `01–07` + `09` are graduated
+site's Learnings section" for the ritual. *(Notes `01–07`, `09`, `10` are graduated
 to HTML; `08` is a stub awaiting M2.)*

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>M1 — Load the weights — Failed Star</title>
+<meta name="description" content="How Failed Star loads a 1.4 GB model: mmap the safetensors file zero-copy, derive the expected tensor set from config.json, and cross-check every shape. fs inspect proves the file matches the architecture before M2 ever computes.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/02-weights.md">
+
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="./index.html">Home</a>
+      <a href="./prerequisites.html">Prerequisites</a>
+      <a href="./diagrams.html">Diagrams</a>
+      <a href="./02-weights.html" class="current" aria-current="page">Milestones</a>
+      <a href="./learnings/index.html">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Milestone M1 · the 1.4 GB shows up</p>
+    <h2>Load the weights: prove the file matches the architecture</h2>
+    <p class="lead">M0 turned text into token IDs with <em>no weights at all</em>. M1 is
+      where the pile of numbers finally arrives — and the whole milestone is one question:
+      <strong>does this file contain exactly the tensors, at exactly the shapes, the
+      architecture implies?</strong></p>
+    <div class="callout">
+      <strong>Status: ✅ done.</strong> <code>fs inspect models/qwen3-0.6b</code> loads
+      <code>config.json</code> + <code>model.safetensors</code>, derives the expected
+      tensor set from the config, cross-checks the file against it, and prints a
+      shape-first report. The real model checks clean: <strong>311 tensors</strong>,
+      596M logical params. 51 unit + 2 golden tests, clippy clean.
+    </div>
+    <pre><code>$ fs inspect models/qwen3-0.6b
+  ✓ all 311 expected tensors present, shapes match the config
+  params: 751,632,384 stored · 596,049,920 logical (the "0.6B")</code></pre>
+    <p>No forward pass yet — that's <strong>M2</strong>. This is the <em>handshake</em>
+      that makes M2 safe to write. Its companion is
+      <a href="./learnings/10-transformer-block-anatomy.html">learning 10 · block anatomy</a>
+      (what each tensor <em>is</em>, and how we know); this page is <strong>what we
+      built</strong>. Previous milestone:
+      <a href="./01-tokenizer.html">M0 · tokenizer</a>.</p>
+  </div>
+</section>
+
+<!-- ============================== NEED BOTH ============================== -->
+<section id="both">
+  <div class="container">
+    <p class="eyebrow">Useless apart</p>
+    <h2>A model is two files — and you need both</h2>
+    <p class="prose">This is the weights-side echo of
+      <a href="./learnings/09-config.html">learning 09</a>. <strong><code>model.safetensors</code>
+      alone</strong> is a flat blob — 596M numbers with no grammar; nothing in it says a
+      <code>[2048,1024]</code> matrix is <code>q_proj</code>, or where one layer ends.
+      <strong><code>config.json</code> alone</strong> is a recipe with no ingredients.
+      <code>fs inspect</code> is that handshake made executable.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 250" role="img"
+           aria-label="config.json (the shape) and model.safetensors (the values) are cross-checked into a verdict: 311 tensors present, shapes match. A checksum cannot do this.">
+        <style>
+          .box  { stroke-width: 1.5; }
+          .cfg  { fill: var(--ds4);       fill-opacity: .14; stroke: var(--ds4); }
+          .wts  { fill: var(--ember);     fill-opacity: .16; stroke: var(--ember); }
+          .out  { fill: var(--book);      fill-opacity: .16; stroke: var(--book); stroke-width: 1.5; }
+          .t    { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .sub  { font-family: var(--mono); font-size: 11px; fill: var(--text-dim); }
+          .big  { font-family: var(--serif); font-size: 15px; fill: var(--text); }
+          .join { font-family: var(--mono); font-size: 12px; fill: var(--text-mute); }
+          .arr  { stroke: var(--text-mute); stroke-width: 1.5; fill: none; }
+        </style>
+        <defs>
+          <marker id="ah02a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+        <rect class="box cfg" x="60" y="26" width="250" height="86" rx="10"/>
+        <text x="185" y="55" text-anchor="middle" class="t">config.json</text>
+        <text x="185" y="76" text-anchor="middle" class="sub">the shape · 13 numbers</text>
+        <text x="185" y="94" text-anchor="middle" class="sub">⟹ expect 311 tensors</text>
+        <rect class="box wts" x="390" y="26" width="250" height="86" rx="10"/>
+        <text x="515" y="55" text-anchor="middle" class="t">model.safetensors</text>
+        <text x="515" y="76" text-anchor="middle" class="sub">the values · ~1.4 GB</text>
+        <text x="515" y="94" text-anchor="middle" class="sub">596M weights, no labels</text>
+        <path class="arr" d="M185 112 L185 150 L340 150" marker-end="url(#ah02a)"/>
+        <path class="arr" d="M515 112 L515 150 L360 150" marker-end="url(#ah02a)"/>
+        <text x="350" y="140" text-anchor="middle" class="join">cross_check</text>
+        <rect class="out" x="212" y="176" width="276" height="52" rx="10"/>
+        <text x="350" y="199" text-anchor="middle" class="big">✓ 311 present · shapes match</text>
+        <text x="350" y="218" text-anchor="middle" class="sub">a verdict a checksum can't give</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ds4)"></i> config — the shape</span>
+        <span><i style="background:var(--ember)"></i> weights — the values</span>
+        <span><i style="background:var(--book)"></i> verdict — they line up</span>
+      </div>
+      <figcaption>Only the config says what "correct" means — and where that definition
+        comes from (the reference implementation, not memory) is
+        <a href="./learnings/10-transformer-block-anatomy.html">learning 10 §1</a>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================== HOW LOADING WORKS ============================== -->
+<section id="stack">
+  <div class="container">
+    <p class="eyebrow">Bottom-up, one helper at a time</p>
+    <h2>The loading stack</h2>
+    <p class="prose">Built as small, separately-tested helpers (the M0 cadence). Each
+      reads through the one below it.</p>
+    <div class="pipeline">
+      <div class="stage"><span class="step">Mmap::open</span>
+        <h4>File → memory</h4><p>Maps the whole file zero-copy via <strong>raw POSIX
+        <code>mmap</code> FFI</strong> (no <code>libc</code> crate); <code>munmap</code> on
+        <code>Drop</code>. The 1.4 GB never lands on our heap.</p></div>
+      <div class="stage"><span class="step">SafeTensors::load</span>
+        <h4>Bytes → tensor directory</h4><p>Reads <code>[u64 len][JSON header][blob]</code>
+        into validated <code>Tensor</code> entries — each a borrowed <code>[s,e)</code>
+        slice of the blob. No weight is ever copied.</p></div>
+      <div class="stage"><span class="step">Config::load</span>
+        <h4>JSON → dims</h4><p>Parses the 7 named dimensions + M2/M3 scalars, with
+        <strong>no silent defaults</strong> — a model we can't fully read fails here,
+        not with wrong shapes in M2.</p></div>
+      <div class="stage"><span class="step">expected_tensors</span>
+        <h4>Config → the spec</h4><p>Emits the tensor set the architecture implies:
+        3 global + 11 per block × <code>L</code> = <strong>311</strong>, each with its
+        <code>[out,in]</code> shape.</p></div>
+      <div class="stage"><span class="step">cross_check</span>
+        <h4>Spec vs. file</h4><p>Diffs expected against actual: missing / mis-shaped /
+        unexpected tensors become <em>problems</em>; totals the params (stored vs
+        logical).</p></div>
+      <div class="stage"><span class="step">render_* + run</span>
+        <h4>The report</h4><p>Prints the dimension legend, the grouped <code>× L</code>
+        table with the <code>in ──▶ out</code> column, and the ✓/✗ verdict.</p></div>
+    </div>
+
+    <h3>The safetensors format — three regions</h3>
+    <p class="prose">"Reading" the file is: read 8 bytes, parse N bytes of JSON, and now
+      every tensor is a slice of the rest.</p>
+    <figure class="figure">
+      <svg viewBox="0 0 700 132" role="img"
+           aria-label="The safetensors layout: 8 bytes of u64 header length, then N bytes of JSON header mapping names to dtype/shape/offsets, then the raw tensor blob that the offsets index into.">
+        <style>
+          .seg  { stroke-width: 1.5; }
+          .len  { fill: var(--dusk);  fill-opacity: .18; stroke: var(--dusk); }
+          .hdr  { fill: var(--ds4);   fill-opacity: .14; stroke: var(--ds4); }
+          .blob { fill: var(--ember); fill-opacity: .14; stroke: var(--ember); }
+          .lbl  { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+          .sub2 { font-family: var(--mono); font-size: 10.5px; fill: var(--text-dim); }
+          .tick { stroke: var(--text-mute); stroke-width: 1; fill: none; }
+          .off  { font-family: var(--mono); font-size: 10px; fill: var(--text-mute); }
+        </style>
+        <rect class="seg len"  x="20"  y="34" width="90"  height="52" rx="7"/>
+        <text x="65"  y="56" text-anchor="middle" class="lbl">u64 len</text>
+        <text x="65"  y="72" text-anchor="middle" class="sub2">8 bytes</text>
+        <rect class="seg hdr"  x="118" y="34" width="230" height="52" rx="7"/>
+        <text x="233" y="56" text-anchor="middle" class="lbl">JSON header</text>
+        <text x="233" y="72" text-anchor="middle" class="sub2">N bytes · name → {dtype, shape, [s,e]}</text>
+        <rect class="seg blob" x="356" y="34" width="324" height="52" rx="7"/>
+        <text x="518" y="56" text-anchor="middle" class="lbl">raw tensor blob</text>
+        <text x="518" y="72" text-anchor="middle" class="sub2">every tensor = a [s,e) slice in here</text>
+        <path class="tick" d="M20 92 L20 100 M110 92 L110 100 M118 92 L118 100 M348 92 L348 100 M356 92 L356 100 M680 92 L680 100"/>
+        <text x="20"  y="114" text-anchor="start"  class="off">0</text>
+        <text x="114" y="114" text-anchor="middle" class="off">8</text>
+        <text x="352" y="114" text-anchor="middle" class="off">8+N</text>
+        <text x="680" y="114" text-anchor="end"    class="off">EOF</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--dusk)"></i> length prefix</span>
+        <span><i style="background:var(--ds4)"></i> JSON header</span>
+        <span><i style="background:var(--ember)"></i> weight blob (mmap'd, lazy)</span>
+      </div>
+      <figcaption><code>parse_tensor_entry</code> validates each entry — <code>end ≤ blob</code>
+        and <code>end−start == shape·dtype.size()</code> — so a self-inconsistent header
+        fails at load, not as a mis-slice in M2. Detail:
+        <a href="./learnings/01-safetensors-vs-gguf.html">learning 01</a>.</figcaption>
+    </figure>
+
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>mmap, not read</h3>
+        <p class="prose" style="margin:0">The OS maps the file into our address space and
+          pages it in lazily; the weights never hit our heap. Raw FFI, to match the
+          no-hidden-abstraction ethos — <a href="./learnings/06-mmap.html">learning 06</a>.</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>bf16 stays lazy</h3>
+        <p class="prose" style="margin:0">Tensors keep raw bf16 bytes; <code>bf16_to_f32</code>
+          exists but is only <em>called</em> in M2. Eager conversion would copy 1.4 GB →
+          ~2.8 GB and defeat the mapping — <a href="./learnings/07-bf16.html">learning 07</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-CHECK + LM_HEAD ============================== -->
+<section id="check">
+  <div class="container">
+    <p class="eyebrow">Deriving what should be there</p>
+    <h2>The cross-check, and the gotcha the file taught us</h2>
+    <p class="prose"><code>expected_tensors(cfg)</code> is
+      <a href="./learnings/05-reading-shapes.html">learning 05</a>'s shape spec written as
+      code — global <code>embed_tokens [V,H]</code>, <code>model.norm [H]</code>,
+      <code>lm_head [V,H]</code>, plus the 11-tensor block × 28 (the GQA asymmetry
+      <code>[2048,1024]</code> vs <code>[1024,1024]</code>, QK-norms, SwiGLU). <code>cross_check</code>
+      diffs it against the file: missing / mis-shaped / unexpected tensors become
+      <em>problems</em>, each naming the offending dim.</p>
+
+    <div class="callout">
+      <strong>Tied ≠ absent.</strong> The plan assumed <code>tie_word_embeddings: true</code>
+      ⟹ no <code>lm_head.weight</code> in the file. <strong>The real file has one</strong>,
+      byte-for-byte identical to <code>embed_tokens</code>. "Tied" is about the <em>math</em>,
+      not the <em>file</em>: a tied export may omit <code>lm_head</code> <em>or</em> ship a
+      redundant copy (Qwen3-0.6B does the latter). Coding from the assumption would have
+      flagged a real tensor as an "extra" and reported a false failure. We caught it only by
+      reading the header — the lesson of
+      <a href="./learnings/10-transformer-block-anatomy.html">learning 10</a>.
+    </div>
+
+    <p class="prose">So <code>lm_head</code> is <strong>optional when tied</strong>, and the
+      verdict reports two param counts:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>count</th><th>value</th><th>meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>stored</strong></td><td><code>751,632,384</code></td><td>naive sum over every file tensor — the vocab table stored <em>twice</em></td></tr>
+          <tr><td><strong>logical</strong></td><td><code>596,049,920</code></td><td>the redundant copy deduped — the "<strong>0.6B</strong>"</td></tr>
+          <tr><td>embeddings</td><td><code>155,582,464</code></td><td><strong>26.1%</strong> of logical — a quarter of the model is the vocabulary</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE OUTPUT ============================== -->
+<section id="output">
+  <div class="container prose">
+    <p class="eyebrow">What it prints</p>
+    <h2>The report, on the real model</h2>
+    <p>Every number is <strong>derived</strong> — the GQA asymmetry, the deduped 596M, the
+      26.1% — nothing hard-coded. A shape mismatch makes <code>run</code> return not-clean,
+      which the CLI turns into a non-zero exit (so <code>fs inspect</code> can gate a build).</p>
+    <pre><code>── dimensions (from config.json) ───────────────────────────────────────────
+  V  vocab_size             151936   distinct tokens
+  H  hidden_size              1024   residual-stream width (the bus)
+  L  num_hidden_layers          28   transformer blocks
+  d  head_dim                  128   width of one attention head
+     num_attention_heads        16   query heads → q width = 16·128 = 2048
+     num_key_value_heads         8   kv heads → kv width = 8·128 = 1024   (GQA group 2)
+  I  intermediate_size        3072   FFN inner width
+  weights are stored [out, in]; read a row as   in ──▶ out   (y = x·Wᵀ)
+
+── tensors ─────────────────────────────────────────────────────────────────
+  TENSOR                          DTYPE SHAPE            PARAMS   in ──▶ out
+  global
+    model.embed_tokens.weight     BF16  [151936, 1024]  155,582,464  id ──▶ H   (row gather)
+  each block  × 28   (shown: layer 0)
+    input_layernorm.weight        BF16  [1024]                1,024  scale 1024
+    self_attn.q_proj.weight       BF16  [2048, 1024]      2,097,152  1024 ──▶ 2048
+    self_attn.k_proj.weight       BF16  [1024, 1024]      1,048,576  1024 ──▶ 1024
+    self_attn.v_proj.weight       BF16  [1024, 1024]      1,048,576  1024 ──▶ 1024
+    self_attn.q_norm.weight       BF16  [128]                   128  scale 128
+    self_attn.k_norm.weight       BF16  [128]                   128  scale 128
+    self_attn.o_proj.weight       BF16  [1024, 2048]      2,097,152  2048 ──▶ 1024
+    post_attention_layernorm.weight BF16 [1024]                1,024  scale 1024
+    mlp.gate_proj.weight          BF16  [3072, 1024]      3,145,728  1024 ──▶ 3072
+    mlp.up_proj.weight            BF16  [3072, 1024]      3,145,728  1024 ──▶ 3072
+    mlp.down_proj.weight          BF16  [1024, 3072]      3,145,728  3072 ──▶ 1024
+  final
+    model.norm.weight             BF16  [1024]                1,024  scale 1024
+    lm_head.weight   (tied)       BF16  [151936, 1024]  155,582,464  1024 ──▶ 151936
+
+── verdict ─────────────────────────────────────────────────────────────────
+  ✓ all 311 expected tensors present, shapes match the config
+  note: lm_head.weight present but tied — a redundant byte-identical copy of embed_tokens (155,582,464 params counted once)
+  params: 751,632,384 stored · 596,049,920 logical (the "0.6B")
+  embeddings: 155,582,464 = 26.1% of logical</code></pre>
+  </div>
+</section>
+
+<!-- ============================== VERIFY ============================== -->
+<section id="verify">
+  <div class="container prose">
+    <p class="eyebrow">The milestone's "done" gate</p>
+    <h2>How we know it's right</h2>
+    <p><strong>51 unit + 2 golden integration tests; <code>cargo clippy --all-targets</code>
+      clean.</strong> The verification is layered:</p>
+    <ul class="checklist">
+      <li><strong>Per-helper units</strong> hit reality — <code>Mmap::open</code> round-trips
+        raw bytes through the live syscall; <code>SafeTensors::load</code> parses the real
+        1.4 GB header; <code>Config::load</code> reads the shipped <code>config.json</code>;
+        <code>expected_tensors</code> derives exactly 311 from it.</li>
+      <li><strong><code>cross_check</code> synthetic cases</strong> (built through the real
+        <code>SafeTensors::load</code>) cover clean/dedup, shape-mismatch, missing-required,
+        unexpected-extra, tied-head-omitted, and tied-head-differs.</li>
+      <li><strong><code>run</code> end-to-end</strong> on a synthetic model (no assets,
+        fresh-checkout safe) proves both the clean exit and the shape-mismatch exit-1 path.</li>
+      <li><strong>The reality anchor</strong> — the real model cross-checks clean at
+        <code>311 / 751,632,384 / 596,049,920 / 26.1%</code>, every figure derived from
+        <code>config.json</code>.</li>
+    </ul>
+    <div class="callout">
+      Reality checks skip gracefully when the (git-ignored) assets aren't fetched, so a
+      fresh checkout stays green. <strong>Next: M2 — forward pass → logits</strong>, where
+      these tensors finally <em>compute</em>.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §4.2.2 (p.103)</span>
+      <span class="chip chip--ds4">🔧 ds4 · ds4.c owns GGUF loading (mmap-based) + gguf-tools/</span>
+      <span class="chip chip--rasch">🧭 Raschka · report → config → reference implementation</span>
+    </div>
+    <p style="margin-top:1rem">See the anatomy companion
+      <a href="./learnings/10-transformer-block-anatomy.html">learning 10 · block anatomy</a>,
+      the shapes primer <a href="./learnings/05-reading-shapes.html">learning 05</a>, and the
+      full writeup
+      <a href="https://github.com/curtisalexander/fs/blob/main/docs/02-weights.md"><code>docs/02-weights.md</code></a>.</p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM
+      inference by building it. Previous: <a href="./01-tokenizer.html">M0 · tokenizer</a>.
+      Next milestone: <strong>M2 — forward pass → logits</strong>.</p>
+    <p class="meta">This page distills <code>docs/02-weights.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>

@@ -16,3 +16,4 @@ and the big-picture [`../00-map.md`](../00-map.md).
 | 07 | [bf16](07-bf16.md) | 2026-07-06 | the weights' number format; bf16 = fp32's top 16 bits; why we widen lazily |
 | 08 | [row-major & strides](08-row-major-strides.md) 🌱 | _M2_ | **stub** — shape→byte-offset; row-major layout, strides, indexing the blob |
 | 09 | [config.json](09-config.md) | 2026-07-14 | the model's blueprint; config vs. code vs. weights; why a config parameterizes an architecture rather than describing one |
+| 10 | [transformer block anatomy](10-transformer-block-anatomy.md) | 2026-07-14 | what each tensor *is* (q/k/v/o, QK-norm, SwiGLU, lm_head); the **provenance chain** (creator→reference→us) and why we read the header/reference, not memory |
