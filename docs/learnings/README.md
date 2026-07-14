@@ -15,3 +15,4 @@ and the big-picture [`../00-map.md`](../00-map.md).
 | 06 | [mmap (raw POSIX FFI)](06-mmap.md) | 2026-06-24 | turning a file into memory zero-copy; the `mmap`/`munmap` FFI + RAII wrapper |
 | 07 | [bf16](07-bf16.md) | 2026-07-06 | the weights' number format; bf16 = fp32's top 16 bits; why we widen lazily |
 | 08 | [row-major & strides](08-row-major-strides.md) 🌱 | _M2_ | **stub** — shape→byte-offset; row-major layout, strides, indexing the blob |
+| 09 | [config.json](09-config.md) | 2026-07-14 | the model's blueprint; config vs. code vs. weights; why a config parameterizes an architecture rather than describing one |

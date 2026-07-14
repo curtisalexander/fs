@@ -107,5 +107,5 @@ the HTML site (its own nav entry + index), hand-distilled like the rest, linked
 from the doc/milestone that references them (link the `.html`, not the raw `.md`).
 HTML is where learnings earn nicer diagrams and *sparing* interactivity (à la
 `diagrams.html`). See [`docs/dev-loop.md`](docs/dev-loop.md) → "Learnings → the
-site's Learnings section" for the ritual. *(Back-graduation of `learnings/01–04`
-is owed — see `PROGRESS.md`.)*
+site's Learnings section" for the ritual. *(All notes `01–07` + `09` are graduated
+to HTML; `08` is a stub awaiting M2.)*

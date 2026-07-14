@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 09 — config.json — Failed Star</title>
+<meta name="description" content="What config.json is: the model's blueprint. You need it AND the weights to rebuild a network — but a config doesn't describe a network, it parameterizes one whose structure lives in code.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/09-config.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../01-tokenizer.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 09 · the model's blueprint</p>
+    <h2>config.json: a dozen numbers that stand next to 1.4 GB</h2>
+    <p class="note-meta"><b>Context:</b> M1, reading <code>config.json</code> into <code>Config</code> ·
+      <b>Status:</b> <span class="status-live">living</span></p>
+    <p class="lead">We just wrote <code>Config::load</code>. It reads a ~1 KB text file and hands
+      back thirteen numbers — a strange thing to sit beside a <strong>1.4 GB</strong> pile of
+      weights and call an equal partner. But it is one, and the reason is more surprising than
+      it looks.</p>
+    <div class="callout">
+      <strong>The question this note exists to answer:</strong> how can a config file possibly
+      describe a whole neural network? The honest answer — the spine of everything below — is
+      <strong>it can't, and it doesn't.</strong> It <em>parameterizes</em> one.
+    </div>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §4.2 (p.103)</span>
+      <span class="chip chip--ds4">🔧 ds4 · GGUF has no separate config — hyperparams live inside the file</span>
+      <span class="chip chip--rasch">🧭 HF PretrainedConfig · architectures → AutoModel</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== NEED BOTH ============================== -->
+<section id="both">
+  <div class="container">
+    <p class="eyebrow">Useless apart</p>
+    <h2>A model is (at least) two files, and you need both</h2>
+    <p class="prose"><strong><code>model.safetensors</code> alone</strong> is a flat blob:
+      596M numbers with no grammar. Nothing in it says a <code>[2048,1024]</code> matrix is
+      <code>q_proj</code>, or that there are 28 blocks, or where one layer ends. <strong><code>config.json</code>
+      alone</strong> is the opposite — a recipe with no ingredients: the <em>shape</em> of a
+      network with no learned values in it. Fold one into the other and you have something that
+      runs.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 250" role="img"
+           aria-label="config.json (the blueprint, ~1 KB) and model.safetensors (the material, ~1.4 GB) both feed into a single runnable network — you need both.">
+        <style>
+          .box  { stroke-width: 1.5; }
+          .cfg  { fill: var(--ds4);       fill-opacity: .14; stroke: var(--ds4); }
+          .wts  { fill: var(--ember);     fill-opacity: .16; stroke: var(--ember); }
+          .out  { fill: var(--text-mute); fill-opacity: .14; stroke: var(--text-mute); stroke-width: 1.5; }
+          .t    { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .sub  { font-family: var(--mono); font-size: 11px; fill: var(--text-dim); }
+          .big  { font-family: var(--serif); font-size: 15px; fill: var(--text); }
+          .join { font-family: var(--mono); font-size: 12px; fill: var(--text-mute); }
+          .arr  { stroke: var(--text-mute); stroke-width: 1.5; fill: none; }
+        </style>
+        <defs>
+          <marker id="ah09a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+
+        <!-- config.json -->
+        <rect class="box cfg" x="60" y="26" width="250" height="86" rx="10"/>
+        <text x="185" y="55" text-anchor="middle" class="t">config.json</text>
+        <text x="185" y="76" text-anchor="middle" class="sub">the blueprint · ~1 KB</text>
+        <text x="185" y="94" text-anchor="middle" class="sub">13 numbers, no values</text>
+
+        <!-- model.safetensors -->
+        <rect class="box wts" x="390" y="26" width="250" height="86" rx="10"/>
+        <text x="515" y="55" text-anchor="middle" class="t">model.safetensors</text>
+        <text x="515" y="76" text-anchor="middle" class="sub">the material · ~1.4 GB</text>
+        <text x="515" y="94" text-anchor="middle" class="sub">596M weights, no labels</text>
+
+        <!-- converging arrows -->
+        <path class="arr" d="M185 112 L185 150 L340 150" marker-end="url(#ah09a)"/>
+        <path class="arr" d="M515 112 L515 150 L360 150" marker-end="url(#ah09a)"/>
+        <text x="350" y="140" text-anchor="middle" class="join">need BOTH</text>
+
+        <!-- result -->
+        <rect class="out" x="250" y="176" width="200" height="52" rx="10"/>
+        <text x="350" y="207" text-anchor="middle" class="big">a runnable network</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ds4)"></i> config — the shape</span>
+        <span><i style="background:var(--ember)"></i> weights — the values</span>
+      </div>
+      <figcaption>M1's <code>fs inspect</code> <em>is</em> this handshake: it proves the tensors in
+        the <code>.safetensors</code> file are exactly the ones the config implies, at the shapes
+        it implies. A checksum can't do that — only the config says what “correct” means.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================== THREE PILES ============================== -->
+<section id="piles">
+  <div class="container">
+    <p class="eyebrow">Twenty-six keys, three piles</p>
+    <h2>What's actually in Qwen3-0.6B's config</h2>
+    <p class="prose">The fields sort into three groups — and the <em>sorting itself</em> is the
+      lesson.</p>
+
+    <h3>Pile A — the dimensions we build every shape from</h3>
+    <p class="prose">These are the <a href="./05-reading-shapes.html">learning 05</a> legend; every
+      weight matrix's shape is a product of them. Get one wrong and <code>fs inspect</code> lights up.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>field</th><th>value</th><th>symbol</th></tr></thead>
+        <tbody>
+          <tr><td><code>vocab_size</code></td><td>151936</td><td><code>V</code></td></tr>
+          <tr><td><code>hidden_size</code></td><td>1024</td><td><code>H</code></td></tr>
+          <tr><td><code>num_hidden_layers</code></td><td>28</td><td><code>L</code></td></tr>
+          <tr><td><code>head_dim</code></td><td>128</td><td><code>d</code></td></tr>
+          <tr><td><code>num_attention_heads</code></td><td>16</td><td>—</td></tr>
+          <tr><td><code>num_key_value_heads</code></td><td>8</td><td>—</td></tr>
+          <tr><td><code>intermediate_size</code></td><td>3072</td><td><code>I</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Pile B — scalars we parse and spend later</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>field</th><th>value</th><th>where it's spent</th></tr></thead>
+        <tbody>
+          <tr><td><code>rms_norm_eps</code></td><td>1e-6</td><td>RMSNorm's divide-by-zero guard (M2)</td></tr>
+          <tr><td><code>rope_theta</code></td><td>1000000</td><td>RoPE base frequency (M2)</td></tr>
+          <tr><td><code>tie_word_embeddings</code></td><td>true</td><td>reuse embeddings as <code>lm_head</code> — <strong>changes the expected tensor set</strong> (M1)</td></tr>
+          <tr><td><code>bos_token_id</code> / <code>eos_token_id</code></td><td>151643 / 151645</td><td>sequence markers (M3)</td></tr>
+          <tr><td><code>max_position_embeddings</code></td><td>40960</td><td>context-length ceiling</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Pile C — fields we ignore, and exactly why that's safe</h3>
+    <p class="prose">A field is safe to skip for one of two reasons — it's <strong>training-only</strong>,
+      or <strong>its value happens to match what we hardcoded</strong>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>field</th><th>value</th><th>why we can skip it</th></tr></thead>
+        <tbody>
+          <tr><td><code>architectures</code></td><td><code>["Qwen3ForCausalLM"]</code></td><td>names the <strong>code class</strong> to build. <em>We are that class</em> — see below.</td></tr>
+          <tr><td><code>model_type</code></td><td><code>"qwen3"</code></td><td>HF registry key that resolves to the same class.</td></tr>
+          <tr><td><code>hidden_act</code></td><td><code>"silu"</code></td><td>we <strong>hardcode SwiGLU</strong>; if this said <code>"gelu"</code> our engine would be <em>wrong</em>, not reconfigurable.</td></tr>
+          <tr><td><code>torch_dtype</code></td><td><code>"bfloat16"</code></td><td>a hint; we read each tensor's dtype from the safetensors header instead (authoritative).</td></tr>
+          <tr><td><code>attention_bias</code></td><td>false</td><td>q/k/v/o have no bias — matches our bias-free <code>Linear</code>.</td></tr>
+          <tr><td><code>attention_dropout</code> · <code>initializer_range</code></td><td>0.0 · 0.02</td><td>training-only; inference never touches them.</td></tr>
+          <tr><td><code>rope_scaling</code></td><td>null</td><td>no long-context frequency scaling; if set we'd bend RoPE.</td></tr>
+          <tr><td><code>sliding_window</code> · <code>use_sliding_window</code></td><td>null · false</td><td>sliding-window attention off; full causal attention is correct.</td></tr>
+          <tr><td><code>use_cache</code> · <code>transformers_version</code></td><td>true · "4.51.0"</td><td>an M4 decision regardless · pure metadata.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout prose">
+      <strong>A quiet trap.</strong> Several Pile-C fields are safe <em>only because of their
+      value</em>. Flip <code>attention_bias</code>, <code>rope_scaling</code>, or
+      <code>sliding_window</code> and the architecture silently changes under us while our code
+      keeps computing the old one. The fail-loud move — a good future hardening of
+      <code>Config::load</code> — is to <strong>assert</strong> these, not skip them. Ignoring a
+      field and asserting a field look identical until the day the value differs.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE REAL QUESTION ============================== -->
+<section id="question">
+  <div class="container">
+    <p class="eyebrow">The spine</p>
+    <h2>How can ~13 numbers describe a network? They don't.</h2>
+    <p class="prose">They configure <strong>code that already knows the network.</strong> Look at
+      the field doing the heavy lifting:</p>
+    <pre><code>"architectures": ["Qwen3ForCausalLM"]</code></pre>
+    <p class="prose">That's not data — it's a <strong>pointer to a class</strong>, a ~1500-line file
+      in the <code>transformers</code> library whose body <em>is</em> the architecture: embed →
+      (RMSNorm → RoPE → GQA attention → residual → RMSNorm → SwiGLU → residual) × L → RMSNorm →
+      tied <code>lm_head</code>. The wiring, the mask, the order of operations, which norm, which
+      activation — all of that lives in <strong>code</strong>. The config only fills in the free
+      numbers of a structure that's already fixed.</p>
+
+    <div class="callout">
+      <strong>config.json is not a blueprint of the network. It's the arguments to a constructor
+      whose body is code.</strong> <code>architectures</code> names the constructor; the other
+      fields are its dials.
+    </div>
+
+    <p class="prose">So the “two files” story is really <strong>three things</strong>, and one is
+      usually invisible:</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 700 190" role="img"
+           aria-label="A model is three things: architecture (code) plus config (dials) plus weights (learned values). Most people never see the code column because everyone shares transformers.">
+        <style>
+          .b3   { stroke-width: 1.5; }
+          .arch { fill: var(--ember);     fill-opacity: .16; stroke: var(--ember); }
+          .cfg3 { fill: var(--ds4);       fill-opacity: .14; stroke: var(--ds4); }
+          .wts3 { fill: var(--text-mute); fill-opacity: .14; stroke: var(--text-mute); }
+          .h3l  { font-family: var(--mono); font-size: 13px; fill: var(--text); }
+          .k3   { font-family: var(--mono); font-size: 10.5px; fill: var(--text-dim); }
+          .op   { font-family: var(--serif); font-size: 22px; fill: var(--text-mute); }
+          .res  { font-family: var(--serif); font-size: 14px; fill: var(--text); }
+        </style>
+        <!-- architecture (code) -->
+        <rect class="b3 arch" x="18" y="30" width="184" height="82" rx="10"/>
+        <text x="110" y="58" text-anchor="middle" class="h3l">architecture</text>
+        <text x="110" y="77" text-anchor="middle" class="k3">CODE · the structure</text>
+        <text x="110" y="95" text-anchor="middle" class="k3">Qwen3ForCausalLM (= fs)</text>
+        <text x="222" y="78" text-anchor="middle" class="op">+</text>
+        <!-- config (dials) -->
+        <rect class="b3 cfg3" x="242" y="30" width="184" height="82" rx="10"/>
+        <text x="334" y="58" text-anchor="middle" class="h3l">config</text>
+        <text x="334" y="77" text-anchor="middle" class="k3">DIALS · the hyperparams</text>
+        <text x="334" y="95" text-anchor="middle" class="k3">config.json</text>
+        <text x="446" y="78" text-anchor="middle" class="op">+</text>
+        <!-- weights (values) -->
+        <rect class="b3 wts3" x="466" y="30" width="184" height="82" rx="10"/>
+        <text x="558" y="58" text-anchor="middle" class="h3l">weights</text>
+        <text x="558" y="77" text-anchor="middle" class="k3">VALUES · the parameters</text>
+        <text x="558" y="95" text-anchor="middle" class="k3">model.safetensors</text>
+        <!-- result -->
+        <text x="350" y="152" text-anchor="middle" class="res">= a running model</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--ember)"></i> code — what we're building</span>
+        <span><i style="background:var(--ds4)"></i> config — the dials</span>
+        <span><i style="background:var(--text-mute)"></i> weights — the values</span>
+      </div>
+      <figcaption>Most people never see the code column — everyone shares the same
+        <code>transformers</code> — so “a model” collapses to config + weights. <strong>We don't get
+        that luxury: <code>fs</code> is the code column.</strong> That's why we can ignore
+        <code>hidden_act</code>: we baked SwiGLU into our own source.</figcaption>
+    </figure>
+
+    <h3>Then why does it <em>feel</em> like enough?</h3>
+    <p class="prose">Because the field standardized. Modern LLMs converged, hard, on <strong>one
+      template</strong>: the decoder-only transformer block, stacked <code>L</code> times. Within
+      it, models differ almost entirely in (1) the ~7 dimension numbers and (2) a handful of
+      “which variant” switches — norm type, activation, positional scheme, attention flavor
+      (MHA → GQA → MLA). A dozen numbers span the whole current family because the family is a
+      <strong>monoculture</strong> — a fact about this moment in the field, not a law of neural nets.</p>
+
+    <h3>So is the schema flexible enough for new architectures?</h3>
+    <div class="split">
+      <div class="phase phase--prefill">
+        <h3>Variants inside the family</h3>
+        <p class="prose" style="margin:0">MoE, MLA, a new RoPE scaling, a sliding window: <strong>new
+          config fields + new code branches</strong>. HF configs are open JSON dicts, so adding
+          <code>num_experts</code> or <code>q_lora_rank</code> is trivial — but the field is
+          <em>inert until code reads it</em>. The schema grows by accretion, one field per capability.</p>
+      </div>
+      <div class="phase phase--decode">
+        <h3>Genuinely new families</h3>
+        <p class="prose" style="margin:0">State-space models (Mamba), diffusion LMs, RNN revivals:
+          a <em>different vocabulary entirely</em> — Mamba has <code>d_state</code>,
+          <code>d_conv</code>, <code>expand</code> and <em>no</em> <code>num_attention_heads</code>.
+          The JSON container is universal; the words inside are architecture-specific and mean
+          nothing without that architecture's code.</p>
+      </div>
+    </div>
+
+    <div class="callout prose">
+      <strong>It's flexible because it's barely a schema at all</strong> — an open key/value dict
+      that delegates every structural decision to code. That's not the config being powerful; it's
+      the config being <em>humble</em>. A config can never describe an architecture nobody has
+      coded yet. It's “fill in the blanks,” never “describe anything.” The surprise you felt is the
+      right instinct: the code explains the network; the config just says how big.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== MENTAL MODEL ============================== -->
+<section id="model">
+  <div class="container prose">
+    <div class="callout">
+      <strong>Mental model.</strong> Config = the dials. Code = the wiring. Weights = the learned
+      values. You need all three to run a model; <code>config.json</code> + <code>model.safetensors</code>
+      are only two of them, and they're only enough because the third — the architecture code — is
+      assumed. On this project we're building that third thing, so we see the whole machine.
+      <code>architectures</code> names it; everything else in <code>config.json</code> is just its
+      arguments.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-LINKS ============================== -->
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./01-safetensors-vs-gguf.html">Learning 01 · safetensors vs GGUF</a> — the
+          “a model is two things” split; note GGUF folds the config <em>into</em> the weight file
+          as metadata.</li>
+        <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — Pile A in depth:
+          how the seven dimensions build every tensor's shape (<code>[out,in]</code>, head_dim
+          decoupling, GQA).</li>
+        <li>Milestone <strong>M1 · load the weights</strong> — <code>fs inspect</code> as the
+          config↔weights handshake; <code>docs/02-weights.md</code> (owed) states “need both” from
+          the weights side.</li>
+        <li>➡ <strong>M2 · forward pass</strong> — where Pile B's <code>rms_norm_eps</code> /
+          <code>rope_theta</code> and the hardcoded SwiGLU / causal mask (the <em>code</em> half)
+          finally run.</li>
+        <li>🔧 <code>src/config.rs</code> — <code>Config</code>, the typed extractors, and the
+          fail-loud “no silent defaults” stance this note argues for extending to Pile C. · Full
+          note: <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/09-config.md"><code>docs/learnings/09-config.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. This is a <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M1 — load the weights</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/09-config.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

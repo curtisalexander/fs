@@ -4,9 +4,98 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M1 — Load the weights (◐ building, bottom-up). **First helper landed:** `Mmap::open` — the raw POSIX `mmap` FFI — implemented + verified. Design (locked earlier): mmap via raw FFI, lazy bf16 (raw bytes, convert on access), shape-first `fs inspect` cross-checking the tensor set against `config.json`. **Next helper: `SafeTensors::load`** (u64 header len → JSON header → tensor directory). M0 — Tokenizer ✅ complete (14/14 golden).
-**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B (tokenizer in `src/tokenizer.rs`, all four BPE stages + special tokens). **M1 in progress:** `src/safetensors.rs::Mmap::open` maps the whole file zero-copy via raw `mmap`/`munmap` FFI with RAII `munmap` on `Drop`; 3 unit tests exercise the live syscall (byte-exact round-trip incl. NUL/high bytes, missing-file → typed `MapFailed`, empty-file rejected). **20 unit + 2 golden integration tests green; clippy clean.** Still `todo!()` in M1 order: `SafeTensors::load` → `Config::load` → `expected_tensors`/`cross_check` → `render_*`. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md); `docs/02-weights.md` owed at M1 close.
+**Current milestone:** M1 — Load the weights (◐ building, bottom-up). **Three helpers landed:** `Mmap::open` (raw POSIX `mmap` FFI), `SafeTensors::load` (the header reader on top of it), and `Config::load` (`config.json` → the 7 named dims) — all implemented + verified against the real assets. Design (locked earlier): mmap via raw FFI, lazy bf16 (raw bytes, convert on access), shape-first `fs inspect` cross-checking the tensor set against `config.json`. **Next: `expected_tensors`/`cross_check`** (config-derived spec vs. the loaded directory) then the `render_*` table + `run` to wire `fs inspect` end to end. M0 — Tokenizer ✅ complete (14/14 golden).
+**Engine status:** `fs tokenize` / `fs detokenize` run end-to-end against Qwen3-0.6B (tokenizer in `src/tokenizer.rs`, all four BPE stages + special tokens). **M1 in progress:** `src/safetensors.rs::Mmap::open` maps the whole file zero-copy via raw `mmap`/`munmap` FFI (RAII `munmap` on `Drop`); `SafeTensors::load` reads the `[u64 len][JSON header][blob]` layout into a `Tensor` directory (name→index), sorted into physical blob order, with per-entry validation (`end ≤ blob`, byte span == `shape·dtype.size()`) and `__metadata__` captured separately; `src/config.rs::Config::load` parses `config.json` via `serde_json::Value` with per-field typed extractors (no silent defaults; miss → `MissingField`, wrong type/range → `BadField`). **31 unit + 2 golden integration tests green; clippy clean.** Reality checks load the real 1.4 GB weights (`format=pt`, `embed_tokens = [151936,1024]` bf16) and the real `config.json` (all 7 dims + scalars + derived `q_width=2048`/`kv_width=1024`/`gqa_group=2`). Still `todo!()` in M1 order: `expected_tensors`/`cross_check` → `render_*`/`run`. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md); `docs/02-weights.md` owed at M1 close.
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings now have their own section** (`docs/learnings/index.html` + a page per note, in the site nav) — the owed HTML-graduation debt for `learnings/01–07` is **cleared**.
+
+---
+
+## Session 11 (cont.) — 2026-07-14 — M1 third helper: `Config::load`
+
+**Did:** implemented the *other half* of "what a model is" — the architecture
+description that the weights are arranged by — right after `SafeTensors::load`, same
+session, same cadence.
+
+**`Config::load` (`src/config.rs`):** `<model_dir>/config.json` → the 7 named dims +
+the M2/M3 scalars.
+- read → `serde_json::from_str::<Value>` (missing/unreadable file → `NotFound`;
+  non-JSON → `Parse`, both naming the path).
+- four small typed extractors (`uint`/`token_id`/`float`/`boolean`), one per JSON
+  scalar kind, each naming the field it couldn't satisfy: absent → `MissingField`,
+  wrong type/range → `BadField`. **No silent defaults** — a model whose config we
+  can't fully read fails loudly here, not with wrong shapes in M2.
+- notes made explicit in code: `rope_theta` is written as an int (`1000000`) yet
+  `as_f64` reads it fine; `rms_norm_eps` narrows to `f32` (our compute width);
+  `bos/eos_token_id` range-check into `u32` via `try_from`.
+
+**Verify:** 6 new unit tests — parses a mini config + derives `q/kv/gqa` widths,
+missing field → `MissingField{field}`, wrong type → `BadField{field}`, missing file
+→ `NotFound`, malformed JSON → `Parse`, and a reality check on the shipped
+`config.json` (all 7 dims + eps/theta/tie/bos/eos/max_pos, plus derived
+`q_width=2048`/`kv_width=1024`/`gqa_group=2`). Full suite **31 unit + 2 golden
+green**; `cargo clippy --all-targets` clean.
+
+**Also (doc work):** wrote a new learning note **[`learnings/09-config.md`](docs/learnings/09-config.md)**
+— what `config.json` *is*: the config↔weights "need BOTH" handshake, the three real
+piles of fields (7 dims → learning 05 · 6 scalars we spend later · the ignored ones,
+with *why* each is safe to skip and a fail-loud "assert don't ignore" caveat), and
+the note's spine — **a config doesn't describe a network, it parameterizes one whose
+structure lives in code** (`architectures` = a pointer to a class; config = dials,
+code = wiring, weights = learned values; new architectures = new fields + new code).
+Indexed in `learnings/README.md`; `src/config.rs` module doc now points at it.
+**Graduated to HTML** the same session: [`learnings/09-config.html`](docs/learnings/09-config.html)
+— hand-distilled to the `07-bf16.html` template, two theme-aware SVGs (the config↔weights
+"need BOTH" handshake; the code+config+weights decomposition), card added to
+`learnings/index.html`, registered in `tools/sync-ledger.tsv` (**sync-check: in sync**;
+row stamped at `92b45b0`, re-stamp with `sync-check.sh --update` on the landing commit).
+**Browser-previewed** both figures in light + dark (headless Chrome): caught and fixed a
+fill bug — the SVGs used `fill: var(--panel)`, an *undefined* token that fell back to
+black; switched to the house pattern (translucent accent fill + colored stroke, à la
+`06-mmap`/`07-bf16`) so they re-theme correctly. **Owed:** `docs/02-weights.md` must echo
+"need both" from the weights side.
+
+**Next:** `expected_tensors(cfg)` (the config-derived name+shape spec from learning
+05 — global embed/norm/lm_head + the per-layer block) → `cross_check(cfg, st)` (diff
+expected vs. the loaded directory; collect problems; total params) → `render_legend`/
+`render_table`/`render_verdict` + `run`, wiring `fs inspect <dir>` end to end. Then
+`docs/02-weights.md`.
+
+---
+
+## Session 11 — 2026-07-14 — M1 second helper: `SafeTensors::load` (the header reader)
+
+**Did:** implemented the first *reader* on top of the mapping — the one that turns
+`Mmap`'s raw bytes into a typed tensor directory — then verified it against the
+real `model.safetensors`. Scope held to exactly this one helper (+ its private
+entry parser), M0 cadence.
+
+**`SafeTensors::load` (`src/safetensors.rs`):** path → parsed, mmap-backed file.
+- lays out the three regions of the format explicitly: `[0,8)` = `u64` LE header
+  length `N` · `[8, 8+N)` = JSON header · `[8+N, ..)` = the tensor blob. Two
+  truncation guards (file < 8 bytes; header runs past EOF) fail *before* any slice.
+- `serde_json::from_slice` on the header bytes (JSON-ness conceded to serde, per the
+  M0 dep note); `__metadata__` is captured into a `String→String` map, not treated
+  as a tensor; every other key goes through the entry parser.
+- `parse_tensor_entry` (private free fn): pulls `dtype`/`shape`/`data_offsets`, and
+  earns its keep with two checks — `end ≤ blob_len` and byte span `end-start ==
+  shape·dtype.size()` — so a self-inconsistent header fails loudly at load, not as a
+  mis-slice in M2. Errors name the offending tensor.
+- directory is **sorted by `start`** into physical blob order (stable + mirrors the
+  file), and the name→index map is built from the sorted `Vec`. JSON keys are unique
+  so no dup check is needed. Derived `Debug` on `SafeTensors` so tests `unwrap_err`.
+
+**Verify:** 5 new unit tests — happy path (directory order, zero-copy `bytes()` at
+the right offsets, `__metadata__` captured & not counted), truncated header,
+byte-span mismatch → `BadTensorInfo`, unknown dtype → `UnknownDtype`, and a
+reality check that loads the real 1.4 GB file (confirmed *ran*, not skipped:
+`format=pt`, `model.embed_tokens.weight = [151936,1024]` bf16 = 311 MB, every
+tensor's slice length == `num_bytes()`). Full suite **25 unit + 2 golden green**;
+`cargo clippy --all-targets` clean.
+
+**Next:** `Config::load` — read `<dir>/config.json` → `serde_json::Value` → extract
+the 7 named dims (no silent defaults; miss/bad-type → typed `ConfigError`). Then
+`expected_tensors`/`cross_check` (config-derived spec vs. the loaded directory) and
+the `render_*` table, wiring `fs inspect` end to end.
 
 ---
 
