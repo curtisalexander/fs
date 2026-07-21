@@ -78,7 +78,7 @@
       re-read them from the file later.</p>
 
     <figure class="figure">
-      <svg viewBox="0 0 720 260" role="img"
+      <svg viewBox="0 0 760 260" role="img"
            aria-label="std::fs::read copies the whole 1.4 GB file into the heap up front; mmap maps the file into the address space with no copy, and pages fault in lazily on first touch.">
         <style>
           .box  { stroke-width: 1.5; }
@@ -101,32 +101,32 @@
         <text x="16" y="52" class="rlab">std::fs::read</text>
         <text x="16" y="70" class="sub">eager · owns the bytes</text>
 
-        <rect class="box file" x="210" y="28" width="120" height="60" rx="6"/>
-        <text x="270" y="54" text-anchor="middle" class="blab">file</text>
-        <text x="270" y="72" text-anchor="middle" class="sub">1.4 GB</text>
+        <rect class="box file" x="250" y="28" width="120" height="60" rx="6"/>
+        <text x="310" y="54" text-anchor="middle" class="blab">file</text>
+        <text x="310" y="72" text-anchor="middle" class="sub">1.4 GB</text>
 
-        <line class="flow" x1="332" y1="58" x2="512" y2="58" marker-end="url(#ah)"/>
-        <text x="422" y="48" text-anchor="middle" class="arw">copy all 1.4 GB</text>
+        <line class="flow" x1="372" y1="58" x2="552" y2="58" marker-end="url(#ah)"/>
+        <text x="462" y="48" text-anchor="middle" class="arw">copy all 1.4 GB</text>
 
-        <rect class="box heap" x="514" y="28" width="120" height="60" rx="6"/>
-        <text x="574" y="54" text-anchor="middle" class="blab">heap</text>
-        <text x="574" y="72" text-anchor="middle" class="sub">1.4 GB copy</text>
+        <rect class="box heap" x="554" y="28" width="120" height="60" rx="6"/>
+        <text x="614" y="54" text-anchor="middle" class="blab">heap</text>
+        <text x="614" y="72" text-anchor="middle" class="sub">1.4 GB copy</text>
 
         <!-- ROW 2 : mmap (lazy map) -->
         <text x="16" y="188" class="rlab">mmap</text>
         <text x="16" y="206" class="sub">lazy · the file *is* the store</text>
 
-        <rect class="box file" x="210" y="164" width="120" height="60" rx="6"/>
-        <text x="270" y="190" text-anchor="middle" class="blab">file</text>
-        <text x="270" y="208" text-anchor="middle" class="sub">1.4 GB</text>
+        <rect class="box file" x="250" y="164" width="120" height="60" rx="6"/>
+        <text x="310" y="190" text-anchor="middle" class="blab">file</text>
+        <text x="310" y="208" text-anchor="middle" class="sub">1.4 GB</text>
 
-        <line class="flow" x1="332" y1="194" x2="512" y2="194" marker-end="url(#ah)"/>
-        <text x="422" y="184" text-anchor="middle" class="arw">map · no copy</text>
-        <text x="422" y="216" text-anchor="middle" class="arw">pages fault in on touch</text>
+        <line class="flow" x1="372" y1="194" x2="552" y2="194" marker-end="url(#ah)"/>
+        <text x="462" y="184" text-anchor="middle" class="arw">map · no copy</text>
+        <text x="462" y="216" text-anchor="middle" class="arw">pages fault in on touch</text>
 
-        <rect class="box addr" x="514" y="164" width="120" height="60" rx="6"/>
-        <text x="574" y="190" text-anchor="middle" class="blab">address</text>
-        <text x="574" y="208" text-anchor="middle" class="blab">space</text>
+        <rect class="box addr" x="554" y="164" width="120" height="60" rx="6"/>
+        <text x="614" y="190" text-anchor="middle" class="blab">address</text>
+        <text x="614" y="208" text-anchor="middle" class="blab">space</text>
       </svg>
       <div class="legend">
         <span><i style="background:var(--text-mute)"></i> file on disk</span>

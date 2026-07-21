@@ -82,7 +82,7 @@
       reproducing its <em>numbers</em>:</p>
 
     <figure class="figure">
-      <svg viewBox="0 0 700 330" role="img"
+      <svg viewBox="0 0 770 330" role="img"
            aria-label="A three-link provenance chain: the Qwen team designs, trains, and documents the model; HuggingFace transformers implements the reference and verifies it reproduces the creators' outputs; Failed Star reads that reference as spec and runs it as oracle, verifying our logits match. Each link is verified by reproducing numbers — golden vectors.">
         <style>
           .pbox { stroke-width: 1.5; }
@@ -102,7 +102,7 @@
         </defs>
 
         <!-- link 1 -->
-        <rect class="pbox p1" x="150" y="18" width="400" height="66" rx="10"/>
+        <rect class="pbox p1" x="125" y="18" width="450" height="66" rx="10"/>
         <text x="350" y="44" text-anchor="middle" class="ph">Qwen team (Alibaba)</text>
         <text x="350" y="64" text-anchor="middle" class="pk">designs · trains · documents → report + reference code + weights</text>
         <!-- arrow 1→2 -->
@@ -110,7 +110,7 @@
         <text x="362" y="107" text-anchor="start" class="pv">verify: reproduce the creators' outputs ← golden vectors</text>
 
         <!-- link 2 -->
-        <rect class="pbox p2" x="150" y="130" width="400" height="66" rx="10"/>
+        <rect class="pbox p2" x="125" y="130" width="450" height="66" rx="10"/>
         <text x="350" y="156" text-anchor="middle" class="ph">HuggingFace transformers</text>
         <text x="350" y="176" text-anchor="middle" class="pk">implements modeling_qwen3.py from the report + reference</text>
         <!-- arrow 2→3 -->
@@ -118,7 +118,7 @@
         <text x="362" y="219" text-anchor="start" class="pv">verify: our logits match, to tolerance ← golden vectors</text>
 
         <!-- link 3 -->
-        <rect class="pbox p3" x="150" y="242" width="400" height="66" rx="10"/>
+        <rect class="pbox p3" x="125" y="242" width="450" height="66" rx="10"/>
         <text x="350" y="268" text-anchor="middle" class="ph">Failed Star (us)</text>
         <text x="350" y="288" text-anchor="middle" class="pk">read HF as spec · run HF as oracle · write our own Rust</text>
       </svg>
@@ -209,7 +209,7 @@
 
         <!-- residual bus -->
         <line class="bus" x1="20" y1="150" x2="680" y2="150" marker-end="url(#ah10b)"/>
-        <text x="26" y="142" class="bbus">H-wide residual stream</text>
+        <text x="26" y="175" class="bbus">H-wide residual stream</text>
 
         <!-- attention sublayer -->
         <rect class="norm" x="120" y="96" width="70" height="40" rx="8"/>

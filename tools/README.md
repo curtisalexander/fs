@@ -33,6 +33,22 @@ Each page also names its sources in the HTML itself
 (`<meta name="fs-distills" content="docs/00-map.md; …">`) so the link is visible
 where you're editing.
 
+## Reviewing diagrams
+
+Our diagrams are hand-authored inline `<svg>` with absolute coordinates — you
+can't spot overlap or text-spill by reading the numbers. [`diagram-review.py`](diagram-review.py)
+renders each `<figure>` on a page with headless Chrome (light + dark) so you can
+actually look:
+
+```sh
+tools/diagram-review.py docs/learnings/06-mmap.html          # all figures, both themes
+tools/diagram-review.py docs/m1-weights.html --fig 1         # one figure
+tools/diagram-review.py docs/m1-weights.html --fig 1 --zoom "300 20 260 120"
+```
+
+PNGs land in `.diagram-review/` (git-ignored). The reviewer's checklist — what to
+look for, how to fix each class of bug — is in [`diagram-review.md`](diagram-review.md).
+
 ## Logo
 
 Working drafts live in [`../assets/logo-drafts/`](../assets/logo-drafts/) (open

@@ -27,3 +27,4 @@ __pycache__/
 .DS_Store
 
 # NOTE: reference/ds4 is a git SUBMODULE (pinned), intentionally NOT ignored.
+.diagram-review/

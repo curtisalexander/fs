@@ -163,7 +163,7 @@
     <p class="prose">"Reading" the file is: read 8 bytes, parse N bytes of JSON, and now
       every tensor is a slice of the rest.</p>
     <figure class="figure">
-      <svg viewBox="0 0 700 132" role="img"
+      <svg viewBox="0 0 730 132" role="img"
            aria-label="The safetensors layout: 8 bytes of u64 header length, then N bytes of JSON header mapping names to dtype/shape/offsets, then the raw tensor blob that the offsets index into.">
         <style>
           .seg  { stroke-width: 1.5; }
@@ -178,17 +178,17 @@
         <rect class="seg len"  x="20"  y="34" width="90"  height="52" rx="7"/>
         <text x="65"  y="56" text-anchor="middle" class="lbl">u64 len</text>
         <text x="65"  y="72" text-anchor="middle" class="sub2">8 bytes</text>
-        <rect class="seg hdr"  x="118" y="34" width="230" height="52" rx="7"/>
-        <text x="233" y="56" text-anchor="middle" class="lbl">JSON header</text>
-        <text x="233" y="72" text-anchor="middle" class="sub2">N bytes · name → {dtype, shape, [s,e]}</text>
-        <rect class="seg blob" x="356" y="34" width="324" height="52" rx="7"/>
-        <text x="518" y="56" text-anchor="middle" class="lbl">raw tensor blob</text>
-        <text x="518" y="72" text-anchor="middle" class="sub2">every tensor = a [s,e) slice in here</text>
-        <path class="tick" d="M20 92 L20 100 M110 92 L110 100 M118 92 L118 100 M348 92 L348 100 M356 92 L356 100 M680 92 L680 100"/>
+        <rect class="seg hdr"  x="118" y="34" width="262" height="52" rx="7"/>
+        <text x="249" y="56" text-anchor="middle" class="lbl">JSON header</text>
+        <text x="249" y="72" text-anchor="middle" class="sub2">N bytes · name → {dtype, shape, [s,e]}</text>
+        <rect class="seg blob" x="386" y="34" width="324" height="52" rx="7"/>
+        <text x="548" y="56" text-anchor="middle" class="lbl">raw tensor blob</text>
+        <text x="548" y="72" text-anchor="middle" class="sub2">every tensor = a [s,e) slice in here</text>
+        <path class="tick" d="M20 92 L20 100 M110 92 L110 100 M118 92 L118 100 M380 92 L380 100 M386 92 L386 100 M710 92 L710 100"/>
         <text x="20"  y="114" text-anchor="start"  class="off">0</text>
         <text x="114" y="114" text-anchor="middle" class="off">8</text>
-        <text x="352" y="114" text-anchor="middle" class="off">8+N</text>
-        <text x="680" y="114" text-anchor="end"    class="off">EOF</text>
+        <text x="383" y="114" text-anchor="middle" class="off">8+N</text>
+        <text x="710" y="114" text-anchor="end"    class="off">EOF</text>
       </svg>
       <div class="legend">
         <span><i style="background:var(--dusk)"></i> length prefix</span>

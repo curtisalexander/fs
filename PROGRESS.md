@@ -10,6 +10,43 @@
 
 ---
 
+## Session 16 — 2026-07-21 — diagram overlap audit + a reusable diagram-review tool
+
+**Why:** the hand-authored inline-SVG diagrams had text-overlap / spill / clipping
+bugs that can't be caught by reading coordinates — you have to render and look, in
+both themes. Built the tooling to do that repeatably, then swept every diagram.
+
+**New tool — [`tools/diagram-review.py`](tools/diagram-review.py)** (+ agent
+checklist [`tools/diagram-review.md`](tools/diagram-review.md), noted in
+`tools/README.md`): lifts each `<figure>` out of a page, drops it into a throwaway
+page linking the *real* `main.css`, and screenshots it with headless Chrome at a
+large, predictable size — light **and** dark. Flags: `--fig N`, `--zoom "x y w h"`,
+`--themes`, `--width`, `--scale`. Output → `.diagram-review/` (git-ignored; new
+`.gitignore` line). Stdlib-only Python + any Chromium-family browser (`$CHROME`
+override). This is the way to eyeball diagrams from now on.
+
+**Diagram fixes (5 across 4 pages — all verified by re-render, both themes):**
+- `learnings/02-radix-tree` — the `"te"` edge ended *inside* the translucent
+  branch node (x2=212, box left edge=196) so it showed through the fill and read
+  as drawn "in front of" the box; landed it on the edge (196).
+- `learnings/06-mmap` — bottom-row label "lazy · the file *is* the store" nearly
+  touched the file box; shifted the whole right cluster +40 and widened viewBox
+  700→760 for breathing room.
+- `learnings/10-transformer-block-anatomy` fig 0 — the green "verify: … ← golden
+  vectors" labels were clipped at the viewBox edge and the top box's subtitle
+  overflowed its box; widened viewBox 700→770 and the three boxes 400→450.
+- `learnings/10` fig 1 — "H-wide residual stream" overlapped the input_ln box and
+  the orange branch tick; moved it below the bus (y 142→175) into empty space.
+- `m1-weights` fig 1 — middle "JSON header" subtitle spilled both sides of its
+  box; widened the header box 230→262, shifted the blob box +30, extended viewBox
+  700→730 (blob stays the dominant-width region).
+
+Reviewed and confirmed clean (no changes): `01`, `04`, `05` (×4), `07`, `09` (×2),
+and both `m1` fig 0 / `09` figures. **HTML-only edits — no markdown drift, ledger
+untouched; `cargo` unaffected.**
+
+---
+
 ## Session 15 — 2026-07-21 — M2 design dialogue + full forward-pass scaffold
 
 **Why:** open M2 (forward pass → logits) the way M1 opened — a design dialogue
