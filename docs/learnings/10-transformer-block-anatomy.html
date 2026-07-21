@@ -188,9 +188,10 @@
 
     <figure class="figure">
       <svg viewBox="0 0 700 250" role="img"
-           aria-label="One pre-norm block: the H-wide residual stream flows left to right. It branches into an RMSNorm then the attention sub-layer (q/k/v projections, QK-norm on queries and keys, attention, o projection), then adds back. Then branches into an RMSNorm then the SwiGLU MLP (gate and up projections, SiLU gate times up, down projection), then adds back.">
+           aria-label="One pre-norm block: the H-wide residual stream flows left to right along the orange bus. Under each sub-layer the bus branches up into an RMSNorm; the normalized copy feeds the sub-layer (attention first, then the SwiGLU MLP) and the sub-layer's output merges back down into the plus on the bus. Attention is q/k/v projections, QK-norm on queries and keys, attention, o projection; the MLP is gate and up projections, SiLU gate times up, down projection.">
         <style>
           .bus  { stroke: var(--ember); stroke-width: 2.5; fill: none; }
+          .tap  { stroke: var(--ember); stroke-width: 1.6; fill: none; }
           .skip { stroke: var(--text-mute); stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; }
           .norm { fill: var(--dusk);  fill-opacity: .18; stroke: var(--dusk);  stroke-width: 1.3; }
           .attn { fill: var(--ds4);   fill-opacity: .13; stroke: var(--ds4);   stroke-width: 1.3; }
@@ -205,41 +206,42 @@
           <marker id="ah10b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
             <path d="M0 0 L10 5 L0 10 z" fill="var(--ember)"/>
           </marker>
+          <marker id="ah10g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
         </defs>
 
         <!-- residual bus -->
-        <line class="bus" x1="20" y1="150" x2="680" y2="150" marker-end="url(#ah10b)"/>
-        <text x="26" y="175" class="bbus">H-wide residual stream</text>
+        <line class="bus" x1="20" y1="180" x2="680" y2="180" marker-end="url(#ah10b)"/>
+        <text x="26" y="205" class="bbus">H-wide residual stream</text>
 
-        <!-- attention sublayer -->
-        <rect class="norm" x="120" y="96" width="70" height="40" rx="8"/>
-        <text x="155" y="112" text-anchor="middle" class="bl">RMSNorm</text>
-        <text x="155" y="127" text-anchor="middle" class="bk">input_ln</text>
-        <rect class="attn" x="205" y="70" width="150" height="66" rx="8"/>
-        <text x="280" y="90" text-anchor="middle" class="bl">Attention</text>
-        <text x="280" y="106" text-anchor="middle" class="bk">q·k·v_proj → QK-norm</text>
-        <text x="280" y="120" text-anchor="middle" class="bk">→ attention → o_proj</text>
-        <circle class="add" cx="390" cy="150" r="12"/>
-        <text x="390" y="154" text-anchor="middle" class="bx">+</text>
-        <!-- attn wiring -->
-        <path class="bus" d="M120 150 L120 116 L120 116" marker-end="url(#ah10b)"/>
-        <path class="skip" d="M120 116 L190 116"/>
-        <path class="skip" d="M355 103 L390 103 L390 138"/>
-        <path class="skip" d="M90 150 C90 60 300 40 390 40 L390 138" />
+        <!-- ATTENTION sub-layer: bus taps up into norm -> attention -> merges back into + -->
+        <path class="tap"  d="M154 180 V147"          marker-end="url(#ah10b)"/>
+        <path class="skip" d="M196 121 H211"          marker-end="url(#ah10g)"/>
+        <path class="skip" d="M368 107 H398 V167"     marker-end="url(#ah10g)"/>
+        <rect class="norm" x="112" y="96" width="84" height="50" rx="8"/>
+        <text x="154" y="117" text-anchor="middle" class="bl">RMSNorm</text>
+        <text x="154" y="134" text-anchor="middle" class="bk">input_ln</text>
+        <rect class="attn" x="216" y="72" width="152" height="70" rx="8"/>
+        <text x="292" y="96"  text-anchor="middle" class="bl">Attention</text>
+        <text x="292" y="114" text-anchor="middle" class="bk">q·k·v_proj → QK-norm</text>
+        <text x="292" y="130" text-anchor="middle" class="bk">→ attention → o_proj</text>
+        <circle class="add" cx="398" cy="180" r="13"/>
+        <text x="398" y="184" text-anchor="middle" class="bx">+</text>
 
-        <!-- mlp sublayer -->
-        <rect class="norm" x="440" y="96" width="70" height="40" rx="8"/>
-        <text x="475" y="112" text-anchor="middle" class="bl">RMSNorm</text>
-        <text x="475" y="127" text-anchor="middle" class="bk">post_attn_ln</text>
-        <rect class="mlp" x="525" y="70" width="120" height="66" rx="8"/>
-        <text x="585" y="90" text-anchor="middle" class="bl">SwiGLU MLP</text>
-        <text x="585" y="106" text-anchor="middle" class="bk">gate·up → SiLU·×</text>
-        <text x="585" y="120" text-anchor="middle" class="bk">→ down_proj</text>
-        <circle class="add" cx="662" cy="150" r="12"/>
-        <text x="662" y="154" text-anchor="middle" class="bx">+</text>
-        <path class="skip" d="M440 116 L510 116"/>
-        <path class="skip" d="M645 103 L662 103 L662 138"/>
-        <path class="skip" d="M410 150 C410 60 560 40 662 40 L662 138"/>
+        <!-- MLP sub-layer: same shape -->
+        <path class="tap"  d="M472 180 V147"          marker-end="url(#ah10b)"/>
+        <path class="skip" d="M514 121 H529"          marker-end="url(#ah10g)"/>
+        <path class="skip" d="M646 107 H662 V167"     marker-end="url(#ah10g)"/>
+        <rect class="norm" x="430" y="96" width="84" height="50" rx="8"/>
+        <text x="472" y="117" text-anchor="middle" class="bl">RMSNorm</text>
+        <text x="472" y="134" text-anchor="middle" class="bk">post_attn_ln</text>
+        <rect class="mlp" x="528" y="72" width="118" height="70" rx="8"/>
+        <text x="587" y="96"  text-anchor="middle" class="bl">SwiGLU MLP</text>
+        <text x="587" y="114" text-anchor="middle" class="bk">gate·up → SiLU·×</text>
+        <text x="587" y="130" text-anchor="middle" class="bk">→ down_proj</text>
+        <circle class="add" cx="662" cy="180" r="13"/>
+        <text x="662" y="184" text-anchor="middle" class="bx">+</text>
       </svg>
       <div class="legend">
         <span><i style="background:var(--ember)"></i> residual stream (H)</span>
