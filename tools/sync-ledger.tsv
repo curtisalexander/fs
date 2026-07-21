@@ -9,8 +9,8 @@ docs/index.html	docs/00-map.md,docs/prerequisites.md	ced610d
 docs/milestones.html	PLAN.md	3ede850
 docs/prerequisites.html	docs/prerequisites.md	ced610d
 docs/diagrams.html	docs/00-map.md	ced610d
-docs/01-tokenizer.html	docs/01-tokenizer.md	ced610d
-docs/02-weights.html	docs/02-weights.md	ced610d
+docs/m0-tokenizer.html	docs/m0-tokenizer.md	ced610d
+docs/m1-weights.html	docs/m1-weights.md	ced610d
 docs/learnings/index.html	docs/learnings/README.md	ced610d
 docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	ced610d
 docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	ced610d

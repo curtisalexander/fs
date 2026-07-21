@@ -230,7 +230,7 @@ producing quiet garbage.
 
 - ⬅ [`learning 01 · safetensors vs GGUF`](01-safetensors-vs-gguf.md) — where these
   shapes physically live on disk (the `[out, in]` blob).
-- ➡ `docs/02-weights.md` — the M1 milestone writeup (uses this legend).
+- ➡ `docs/m1-weights.md` — the M1 milestone writeup (uses this legend).
 - 🔧 `ds4`: `metal/dense.metal` (the matmul), `metal/flash_attn.metal` (head
   layout), `metal/glu.metal` (SwiGLU), `metal/norm.metal` (RMSNorm scale vectors).
 - 🧭 Raschka's architecture comparison — the GQA / head_dim choices across models.

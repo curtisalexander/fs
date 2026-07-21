@@ -4,9 +4,9 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ next). **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/02-weights.md`](docs/02-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
-**Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/01-tokenizer.md`](docs/01-tokenizer.md), [`docs/02-weights.md`](docs/02-weights.md) (both graduated to HTML).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/02-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../02-weights.html`).
+**Current milestone:** M2 — Forward pass → logits (◐ next). **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
+**Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
 
 ---
 
@@ -15,10 +15,10 @@
 **Did:** wrote the M1 milestone doc and graduated the M1 learnings to the site, then
 flipped the milestone.
 
-**New docs:** [`docs/02-weights.md`](docs/02-weights.md) (Markdown source of truth —
+**New docs:** [`docs/m1-weights.md`](docs/m1-weights.md) (Markdown source of truth —
 "need both" from the weights side, the loading stack, the safetensors format, the
 cross-check + tied-`lm_head` gotcha, the real `fs inspect` output, layered verify,
-three-way cross-links) → hand-distilled to `docs/02-weights.html` (milestone template:
+three-way cross-links) → hand-distilled to `docs/m1-weights.html` (milestone template:
 need-both figure, 6-stage loading pipeline, **safetensors-layout SVG**, mmap/bf16 split,
 params table, full output, checklist). Graduated `learnings/10` →
 `docs/learnings/10-transformer-block-anatomy.html` with three theme-aware SVGs
@@ -26,7 +26,7 @@ params table, full output, checklist). Graduated `learnings/10` →
 tensors, the QK-norm callout, the SwiGLU formula, the lm_head surprise.
 
 **Site wiring:** added the Learning 10 card to `learnings/index.html` ("Eight" → "Nine"),
-swept the "Milestones" nav to the current milestone (`02-weights.html`) across all 12
+swept the "Milestones" nav to the current milestone (`m1-weights.html`) across all 12
 pages, linked M0 → M1 forward, added two `tools/sync-ledger.tsv` rows (stamped `2015112`;
 re-stamp with `sync-check.sh --update` on landing). **QA:** tags balanced on both new
 pages, `<style>` scoped to SVGs, **0 broken links site-wide**, sync-check **in sync**.
@@ -35,7 +35,7 @@ pages, `<style>` scoped to SVGs, **0 broken links site-wide**, sync-check **in s
 `lm_head.weight`" claim — fixed to the "tied is about the math, not the file" note
 (311/751M/596M, byte-identical redundant copy), added the abridged `fs inspect` output
 block ("every number derived"), corrected the lm_head table row (`[V,H]`, redundant),
-updated cross-links (→ `10` + `../02-weights.html`).
+updated cross-links (→ `10` + `../m1-weights.html`).
 
 **M1 flipped ☑ (all four places, per dev-loop):** `PLAN.md` legend (`M1 ☑`, `M2 ◐
 current`), this PROGRESS **Current milestone** line, `README.md` status blurb +
@@ -98,11 +98,11 @@ safe); the real-model tests are gated + confirmed running.
 
 **Doc sync:** learning 05's "how this shows up in `fs inspect`" now carries the real
 (abridged) output — every number derived, nothing hard-coded; learning 10 §3 points
-at it. **Still owed at M1 close:** `docs/02-weights.md` (milestone writeup, echoing
+at it. **Still owed at M1 close:** `docs/m1-weights.md` (milestone writeup, echoing
 config↔weights "need both" from the weights side), then graduate `learnings/10` (+
 the updated `05`) to HTML and register in the sync ledger.
 
-**Next:** write `docs/02-weights.md`, then the HTML graduation. That closes M1 → M2
+**Next:** write `docs/m1-weights.md`, then the HTML graduation. That closes M1 → M2
 (forward pass → logits).
 
 ---
@@ -148,14 +148,14 @@ row stamped at `92b45b0`, re-stamp with `sync-check.sh --update` on the landing 
 **Browser-previewed** both figures in light + dark (headless Chrome): caught and fixed a
 fill bug — the SVGs used `fill: var(--panel)`, an *undefined* token that fell back to
 black; switched to the house pattern (translucent accent fill + colored stroke, à la
-`06-mmap`/`07-bf16`) so they re-theme correctly. **Owed:** `docs/02-weights.md` must echo
+`06-mmap`/`07-bf16`) so they re-theme correctly. **Owed:** `docs/m1-weights.md` must echo
 "need both" from the weights side.
 
 **Next:** `expected_tensors(cfg)` (the config-derived name+shape spec from learning
 05 — global embed/norm/lm_head + the per-layer block) → `cross_check(cfg, st)` (diff
 expected vs. the loaded directory; collect problems; total params) → `render_legend`/
 `render_table`/`render_verdict` + `run`, wiring `fs inspect <dir>` end to end. Then
-`docs/02-weights.md`.
+`docs/m1-weights.md`.
 
 ---
 
@@ -251,7 +251,7 @@ paid off the whole Learnings-→-site debt in one batch.
   "distillation, not conversion"), upgrading ASCII diagrams to real theme-aware SVG.
 - Built the **Learnings site section**: `docs/learnings/index.html` (card grid) +
   a "Learnings" entry in the nav on all pages (index/prerequisites/diagrams/
-  01-tokenizer + every note). Added a small Learnings CSS block to `main.css`
+  m0-tokenizer + every note). Added a small Learnings CSS block to `main.css`
   (`.note-meta`, `.figure`/`.legend`, `.crosslinks`, `.learn-card`) — no new
   framework, tokens reused.
 - Distilled **01–07** to HTML (`07-bf16.html` hand-authored as the canonical
@@ -279,7 +279,7 @@ batch, run `tools/sync-check.sh --update` to re-stamp to the new commit.
 
 **Next (unchanged):** M1 engine code, bottom-up from `Mmap::open` (the raw POSIX
 FFI) → `SafeTensors::load` → `Config::load` → `expected_tensors`/`cross_check` →
-`render_*`, verified against the real `model.safetensors`. Then `docs/02-weights.md`
+`render_*`, verified against the real `model.safetensors`. Then `docs/m1-weights.md`
 (+ graduate `learnings/08` when M2 writes it).
 
 ---
@@ -353,7 +353,7 @@ paging, raw POSIX FFI, RAII cleanup).
 **Next:** implement bottom-up, one helper at a time (M0 cadence): `Mmap::open`
 (the FFI) → `SafeTensors::load` (u64 header len → JSON header → tensor directory) →
 `Config::load` → `expected_tensors`/`cross_check` → the `render_*` table, verifying
-against the real `model.safetensors` (1.4 GB, already on disk). Then `docs/02-weights.md`.
+against the real `model.safetensors` (1.4 GB, already on disk). Then `docs/m1-weights.md`.
 
 ---
 
@@ -379,7 +379,7 @@ and implemented special tokens off the back of it.
   `extract_pattern`, special-token carving/decoding) + **2 golden integration**
   (the 14-case parity test, plus a special-token test: `<|im_start|>` → 151644,
   carving, round-trip). All green; `cargo clippy` clean.
-- Swept all comments/docs/site for the change: `docs/01-tokenizer.md` + `.html`
+- Swept all comments/docs/site for the change: `docs/m0-tokenizer.md` + `.html`
   (data section, gotchas, verify/deferred), `docs/testing.md`, this file.
 
 **Decisions resolved this session:**
@@ -415,7 +415,7 @@ then wired and verified it against the real model.
 - Wired `load` / `encode` / `decode`; added `tests/golden_tokenizer.rs` (encode = official
   IDs, decode = official text, round-trip) over all 14 cases. **All pass.** CLI verified
   on `hello world`, the France sentence, and the emoji case. No build warnings.
-- Wrote [`docs/01-tokenizer.md`](docs/01-tokenizer.md) — the milestone writeup (pipeline,
+- Wrote [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md) — the milestone writeup (pipeline,
   data, the `hello` trace, gotchas, verification), cross-linked to the book / `ds4` /
   Raschka and to [`learnings/03-bpe.md`](docs/learnings/03-bpe.md).
 
@@ -431,7 +431,7 @@ then wired and verified it against the real model.
 
 **Possible next steps (M0 wrap / M1 start):**
 1. (optional) Implement special-token carving + a chat-template encode path.
-2. (optional) Distill `docs/01-tokenizer.md` into the HTML site + update the sync ledger.
+2. (optional) Distill `docs/m0-tokenizer.md` into the HTML site + update the sync ledger.
 3. **M1 — load the weights:** parse safetensors + `config.json`; `fs inspect model/`.
 
 ---
@@ -461,7 +461,7 @@ then wired and verified it against the real model.
   n to one word). ⏳ **DEFERRED OPTIMIZATION:** memoize `bpe(word)` in a HashMap
   (GPT-2-style) in a later pass — recorded here + in the `bpe` doc comment. ✅
 - **Docs:** the `"hello"`→14990 trace is the canonical worked example for
-  `docs/01-tokenizer.md`. ✅
+  `docs/m0-tokenizer.md`. ✅
 
 **Next:** implement in PROGRESS order — `build_byte_encoder`, then
 `load_vocab`/`load_merges`, then `bpe` (now fully specced) with `adjacent_pairs`/
@@ -502,7 +502,7 @@ then wired and verified it against the real model.
 - **M0 test shape:** use light inline unit tests for private helpers plus a light
   integration test over `tests/golden/tokenizer.json`. ✅
 - **Milestone docs:** `docs/00-map.md` stays the map; milestone writeups start at
-  `docs/01-tokenizer.md`, then `docs/02-weights.md`, etc. ✅
+  `docs/m0-tokenizer.md`, then `docs/m1-weights.md`, etc. ✅
 - **Python dependency management:** must use uv + `pyproject.toml`; no pip,
   requirements files, ad-hoc virtualenv setup, or inline script metadata. ✅
 - **License policy:** reject GPL/AGPL/LGPL dependencies by default; warn/review
@@ -567,7 +567,7 @@ then wired and verified it against the real model.
 5. Wire `encode` / `decode`; verify against `tests/golden/tokenizer.json` + round-trip.
 
 **Method note:** continue sketch-first → read → implement-together, one helper at
-a time; pull the best explanations into `docs/01-tokenizer.md` + `learnings/`.
+a time; pull the best explanations into `docs/m0-tokenizer.md` + `learnings/`.
 
 ---
 
@@ -655,5 +655,5 @@ a time; pull the best explanations into `docs/01-tokenizer.md` + `learnings/`.
 2. `cargo init` the Rust project; lay out `src/`.
 3. Implement BPE encode/decode in Rust against Qwen's real vocab/merges.
 4. Verify token IDs match the official tokenizer on a string set; write
-   `docs/01-tokenizer.md` (cross-link book §2.2, ds4 `ds4.c` BPE + hash table,
+   `docs/m0-tokenizer.md` (cross-link book §2.2, ds4 `ds4.c` BPE + hash table,
    Raschka BPE; see also `learnings/02-radix-tree.md`).

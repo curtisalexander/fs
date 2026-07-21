@@ -37,7 +37,7 @@
 //!
 //! We used to read GPT-2's split `vocab.json` + `merges.txt`; `tokenizer.json`
 //! supersedes both and is what newer models ship, so we parse it directly.
-//! (See docs/01-tokenizer.md.)
+//! (See docs/m0-tokenizer.md.)
 //!
 //! Verify (M0 "done"): reproduce `tests/golden/tokenizer.json` exactly, and
 //! round-trip decode(encode(s)) == s.
@@ -371,7 +371,7 @@ impl Tokenizer {
     /// memoizes `bpe(word)` in a HashMap; add that cache in a later pass, NOT now.
     ///
     /// WORKED TRACE ("hello" -> 14990) — the canonical M0 example (also the
-    /// worked example in docs/01-tokenizer.md). `#N` is the merge rank:
+    /// worked example in docs/m0-tokenizer.md). `#N` is the merge rank:
     ///   [h,e,l,l,o] --(e,l)#45--> [h,el,l,o] --(l,o)#129--> [h,el,lo]
     ///   --(el,lo)#4535--> [h,ello] --(h,ello)#14734--> [hello] -> id 14990
     /// Note (h,e)#127 was available at step 1 but (e,l)#45 outranked it; once

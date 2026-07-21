@@ -49,7 +49,7 @@ handshake — it proves the tensors in the `.safetensors` file are the ones the 
 can say what "correct" even means.
 
 > This "need both" point belongs in the M1 milestone writeup too
-> (`docs/02-weights.md`, owed at M1 close) — state it from the weights side there,
+> (`docs/m1-weights.md`, owed at M1 close) — state it from the weights side there,
 > from the config side here.
 
 ---
@@ -213,7 +213,7 @@ how big.
   is two things" split; note GGUF folds the config *into* the weight file as metadata.
 - 🔗 [`learning 05 · reading shapes`](05-reading-shapes.md) — Pile A in depth: how the
   seven dimensions build every tensor's shape (`[out,in]`, head_dim decoupling, GQA).
-- ➡ `docs/02-weights.md` (M1, owed) — the weights side of "need both"; `fs inspect`
+- ➡ `docs/m1-weights.md` (M1, owed) — the weights side of "need both"; `fs inspect`
   as the config↔weights handshake.
 - ➡ `docs/03-forward-pass.md` (M2) — where Pile B's `rms_norm_eps` / `rope_theta` and
   the hardcoded SwiGLU / causal mask (the *code* half) finally run.

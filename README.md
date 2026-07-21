@@ -74,7 +74,7 @@ fs/
 │   ├── index.html             ← learning-site landing page (rich HTML)
 │   ├── prerequisites.md       ← what to know before diving in (read this first)
 │   ├── 00-map.md              ← THE BIG PICTURE of an inference engine
-│   ├── 01-tokenizer.md        ← M0 writeup (.md + rich .html version)
+│   ├── m0-tokenizer.md        ← M0 writeup (.md + rich .html version)
 │   ├── dev-loop.md            ← how to resume work after a break
 │   ├── testing.md             ← verification strategy and golden-vector plan
 │   ├── diagrams.html          ← shared diagram gallery
@@ -105,7 +105,7 @@ fs/
 next.** `fs inspect models/qwen3-0.6b` loads `config.json` + `model.safetensors`,
 derives the expected tensor set from the config, cross-checks the file against it,
 and prints a shape-first legend + tensor table + verdict — the real model checks
-clean (311 tensors, 596M logical params; see [`docs/02-weights.md`](docs/02-weights.md)).
+clean (311 tensors, 596M logical params; see [`docs/m1-weights.md`](docs/m1-weights.md)).
 The weights are mmap'd zero-copy via raw POSIX FFI, bf16 kept lazy. Next step: the
 forward pass (embeddings → transformer blocks → logits), CPU-first.
 

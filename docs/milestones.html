@@ -92,20 +92,20 @@
 
       <div class="card learn-card">
         <p class="lnum">MILESTONE M0 · ☑ DONE</p>
-        <h3><a href="./01-tokenizer.html">Tokenizer</a></h3>
+        <h3><a href="./m0-tokenizer.html">Tokenizer</a></h3>
         <p>Text ↔ token IDs. BPE encode/decode against the model's real vocabulary — no GPU,
           no weights, the model's front door.</p>
         <p class="artifact"><code>fs tokenize "hello world"</code> → IDs, and decode back.</p>
-        <p class="when">doc → <a href="./01-tokenizer.html">01-tokenizer</a></p>
+        <p class="when">doc → <a href="./m0-tokenizer.html">m0-tokenizer</a></p>
       </div>
 
       <div class="card learn-card">
         <p class="lnum">MILESTONE M1 · ☑ DONE</p>
-        <h3><a href="./02-weights.html">Load the weights</a></h3>
+        <h3><a href="./m1-weights.html">Load the weights</a></h3>
         <p>Parse the model file, map every tensor (names, shapes, dtypes) into memory, and prove
           the file matches the architecture the config implies.</p>
         <p class="artifact"><code>fs inspect models/qwen3-0.6b</code> → architecture + tensor table.</p>
-        <p class="when">doc → <a href="./02-weights.html">02-weights</a></p>
+        <p class="when">doc → <a href="./m1-weights.html">m1-weights</a></p>
       </div>
 
       <div class="card learn-card current-ms">
@@ -114,7 +114,7 @@
         <p>Embeddings → N transformer blocks (RMSNorm, RoPE, attention, SwiGLU) → final norm →
           logits. CPU/Rust first — correct before fast. The "it understands" milestone.</p>
         <p class="artifact"><code>fs logits "The capital of France is"</code> → top-k next tokens.</p>
-        <p class="when">doc → <code>03-forward-pass</code> · lands with the milestone</p>
+        <p class="when">doc → <code>m2-forward-pass</code> · lands with the milestone</p>
       </div>
 
       <div class="card learn-card stub">
@@ -165,10 +165,11 @@
     </div>
 
     <div class="callout prose" style="margin-top:1.6rem">
-      <strong>One numbering wrinkle.</strong> The doc filenames run one ahead of the milestone
-      number, because <code>00-map</code> is the overview: <strong>M0 → <code>01-tokenizer</code></strong>,
-      <strong>M1 → <code>02-weights</code></strong>, <strong>M2 → <code>03-forward-pass</code></strong>,
-      and so on. The links above already point at the right file, so you never have to do the math.
+      <strong>Filenames match the milestone.</strong> Each milestone's doc is named for it —
+      <strong>M0 → <code>m0-tokenizer</code></strong>, <strong>M1 → <code>m1-weights</code></strong>,
+      <strong>M2 → <code>m2-forward-pass</code></strong>, and so on. Docs without an <code>mN-</code>
+      prefix (the <a href="./index.html">map</a>, the <a href="./prerequisites.html">prerequisites</a>)
+      are context, not milestones.
     </div>
 
     <p class="prose" style="margin-top:1.4rem">The full curriculum — verify steps, book/page

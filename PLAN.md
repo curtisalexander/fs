@@ -28,14 +28,14 @@ Legend: ☐ todo · ◐ in progress · ☑ done
 
 ---
 
-## M0 — Tokenizer  ☑  *(done — see [`docs/01-tokenizer.md`](docs/01-tokenizer.md))*
+## M0 — Tokenizer  ☑  *(done — see [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md))*
 Text ↔ token IDs. BPE encode/decode against the chosen model's real vocabulary.
 - **Artifact:** `fs tokenize "hello world"` → IDs, and decode back to text, in Rust.
 - **Verify:** round-trip + match the official tokenizer's IDs on a set of strings.
 - 📖 §2.2 (p.46) · 🔧 `reference/ds4/ds4.c` (BPE + `str_i32_table` hash table) · 🧭 Raschka "LLM from scratch" BPE.
 - **Why first:** no GPU, no weights, self-contained; it's the model's front door.
 
-## M1 — Load the weights  ☑  *(done — see [`docs/02-weights.md`](docs/02-weights.md))*
+## M1 — Load the weights  ☑  *(done — see [`docs/m1-weights.md`](docs/m1-weights.md))*
 Parse the model file format and map every tensor (names, shapes, dtypes) into
 memory. Read `config.json` (layers, dims, heads, vocab).
 - **Artifact:** `fs inspect model/` prints the architecture + tensor table.
@@ -94,9 +94,9 @@ Pick by interest once the core engine breathes:
 ---
 
 ## Parallel track — the docs (always-on)
-After each milestone, write the next numbered doc after the map — e.g.
-`docs/01-tokenizer.md` for M0, `docs/02-weights.md` for M1,
-`docs/03-forward-pass.md` for M2: what we built, the math, the gotchas, and the
+After each milestone, write that milestone's doc — named for it, `mN-`:
+`docs/m0-tokenizer.md` for M0, `docs/m1-weights.md` for M1,
+`docs/m2-forward-pass.md` for M2: what we built, the math, the gotchas, and the
 three-way cross-links (book §/page, `ds4` file, Raschka). Start in Markdown;
 graduate the best ones to **rich HTML with diagrams** once content settles. Index
 everything in [`docs/RESOURCES.md`](docs/RESOURCES.md).

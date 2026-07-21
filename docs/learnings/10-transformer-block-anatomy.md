@@ -242,7 +242,7 @@ output in [learning 05](05-reading-shapes.md#how-this-shows-up-in-fs-inspect-and
   architecture whose structure lives in code (the root of Part 1).
 - ⬅ [`learning 04 · embedding models`](04-embedding-models.md) — `embed_tokens` as a
   gather, and the three senses of "embedding."
-- ➡ `docs/02-weights.md` — the M1 milestone writeup (uses this anatomy).
+- ➡ `docs/m1-weights.md` — the M1 milestone writeup (uses this anatomy).
 - 🔧 [`modeling_qwen3.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py)
   — the reference forward pass (spec + M2 oracle).
 - 📄 [Qwen3 Technical Report (arXiv:2505.09388)](https://arxiv.org/abs/2505.09388)

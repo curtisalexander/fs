@@ -340,7 +340,7 @@ query_states = self.q_norm(self.q_proj(hidden_states)...)            # applied b
       reconciliation — the deduped <code>596M</code>, the redundant-copy note, the
       <code>26.1%</code> share — all <em>derived</em> from <code>config.json</code> and checked
       against the file, none of it hard-coded. See the abridged output in
-      <a href="../02-weights.html#output">M1 · load the weights</a>.</p>
+      <a href="../m1-weights.html#output">M1 · load the weights</a>.</p>
   </div>
 </section>
 
@@ -356,7 +356,7 @@ query_states = self.q_norm(self.q_proj(hidden_states)...)            # applied b
           <em>parameterizes</em> a structure that lives in code (the root of Part 1).</li>
         <li><a href="./04-embedding-models.html">Learning 04 · embedding models</a> —
           <code>embed_tokens</code> as a gather, and the three senses of "embedding."</li>
-        <li>➡ <a href="../02-weights.html">M1 · load the weights</a> — the milestone this
+        <li>➡ <a href="../m1-weights.html">M1 · load the weights</a> — the milestone this
           anatomy feeds; <code>fs inspect</code> as the config↔weights handshake.</li>
         <li>🔧 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py"><code>modeling_qwen3.py</code></a>
           — the reference forward pass (spec + M2 oracle) ·
