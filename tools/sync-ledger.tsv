@@ -6,6 +6,7 @@
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
 docs/index.html	docs/00-map.md,docs/prerequisites.md	ced610d
+docs/milestones.html	PLAN.md	3ede850
 docs/prerequisites.html	docs/prerequisites.md	ced610d
 docs/diagrams.html	docs/00-map.md	ced610d
 docs/01-tokenizer.html	docs/01-tokenizer.md	ced610d

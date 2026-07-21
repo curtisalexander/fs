@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Milestones — Failed Star</title>
+<meta name="description" content="The Failed Star build in order: the M0→M7 milestone curriculum. Each milestone is a runnable artifact plus a doc — where we are, what each one does, and a link to its writeup.">
+
+<!-- Sync ledger: this index is a distillation of the milestone curriculum.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="PLAN.md">
+
+<link rel="stylesheet" href="./assets/css/main.css">
+<link rel="icon" href="./assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<!-- ============================== HEADER ============================== -->
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="./index.html" aria-label="Failed Star home">
+      <img src="./assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="./index.html">Home</a>
+      <a href="./prerequisites.html">Prerequisites</a>
+      <a href="./diagrams.html">Diagrams</a>
+      <a href="./milestones.html" class="current" aria-current="page">Milestones</a>
+      <a href="./learnings/index.html">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================== INTRO ============================== -->
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">The build, in order</p>
+    <h2>Milestones</h2>
+    <p class="lead">Failed Star is built as a curriculum: <strong>M0 → M7</strong>, in order,
+      each one a <strong>runnable artifact</strong> plus <strong>a doc</strong> that teaches it.
+      This is the spine of the whole project — the <a href="./index.html">home page</a> tells
+      the story, the <a href="./learnings/index.html">Learnings</a> capture the <em>why</em>,
+      and this page is the <em>where-we-are</em> and the map to every milestone writeup.</p>
+    <div class="callout">
+      <strong>How to read this.</strong> Status is <code>☑ done</code> · <code>◐ now</code> ·
+      <code>☐ todo</code>. A milestone is <strong>done</strong> when it runs and its output is
+      verified against a known-good reference. Done milestones link to their full doc; upcoming
+      ones get theirs written as we build them.
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PROGRESS ============================== -->
+<section id="status">
+  <div class="container">
+    <p class="eyebrow">Where we are</p>
+    <h2>Build progress</h2>
+    <div class="progress">
+      <div class="progress-bar"><span style="width:29%"></span></div>
+      <p class="progress-caption"><strong>2 / 7</strong> core milestones done ·
+        currently <strong class="cur">M2 — forward pass → logits</strong></p>
+      <ol class="milestones">
+        <li class="ms ms--done"><span class="ms-id">M0</span><span class="ms-name">Tokenizer</span></li>
+        <li class="ms ms--done"><span class="ms-id">M1</span><span class="ms-name">Load weights</span></li>
+        <li class="ms ms--now"><span class="ms-id">M2</span><span class="ms-name">Forward pass</span></li>
+        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Sampling</span></li>
+        <li class="ms"><span class="ms-id">M4</span><span class="ms-name">KV cache</span></li>
+        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Quantization</span></li>
+        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal kernels</span></li>
+        <li class="ms ms--stretch"><span class="ms-id">7+</span><span class="ms-name">Stretch</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE MILESTONES ============================== -->
+<section id="list">
+  <div class="container">
+    <p class="eyebrow">One artifact + one doc, each</p>
+    <h2>The curriculum, M0 → M7</h2>
+    <div class="cards">
+
+      <div class="card learn-card">
+        <p class="lnum">MILESTONE M0 · ☑ DONE</p>
+        <h3><a href="./01-tokenizer.html">Tokenizer</a></h3>
+        <p>Text ↔ token IDs. BPE encode/decode against the model's real vocabulary — no GPU,
+          no weights, the model's front door.</p>
+        <p class="artifact"><code>fs tokenize "hello world"</code> → IDs, and decode back.</p>
+        <p class="when">doc → <a href="./01-tokenizer.html">01-tokenizer</a></p>
+      </div>
+
+      <div class="card learn-card">
+        <p class="lnum">MILESTONE M1 · ☑ DONE</p>
+        <h3><a href="./02-weights.html">Load the weights</a></h3>
+        <p>Parse the model file, map every tensor (names, shapes, dtypes) into memory, and prove
+          the file matches the architecture the config implies.</p>
+        <p class="artifact"><code>fs inspect models/qwen3-0.6b</code> → architecture + tensor table.</p>
+        <p class="when">doc → <a href="./02-weights.html">02-weights</a></p>
+      </div>
+
+      <div class="card learn-card current-ms">
+        <p class="lnum">MILESTONE M2 · ◐ NOW</p>
+        <h3>Forward pass → logits</h3>
+        <p>Embeddings → N transformer blocks (RMSNorm, RoPE, attention, SwiGLU) → final norm →
+          logits. CPU/Rust first — correct before fast. The "it understands" milestone.</p>
+        <p class="artifact"><code>fs logits "The capital of France is"</code> → top-k next tokens.</p>
+        <p class="when">doc → <code>03-forward-pass</code> · lands with the milestone</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">MILESTONE M3 · ☐ TODO</p>
+        <h3>Sampling → generation</h3>
+        <p>Softmax + temperature, greedy / top-k / top-p, the autoregressive loop, streaming
+          output, stop tokens. The "it's alive" milestone.</p>
+        <p class="artifact"><code>fs chat "..."</code> streams a (slow) reply.</p>
+        <p class="when">doc → lands with the milestone</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">MILESTONE M4 · ☐ TODO</p>
+        <h3>KV cache</h3>
+        <p>Cache K/V per layer so decode does one-token work instead of reprocessing the whole
+          sequence. RAM-only first. The "I made it faster" milestone.</p>
+        <p class="artifact">decode tok/s jumps; output unchanged vs M3.</p>
+        <p class="when">doc → lands with the milestone</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">MILESTONE M5 · ☐ TODO</p>
+        <h3>Quantization</h3>
+        <p>Load/dequant 8-bit then 4-bit weights; measure quality vs speed vs memory. The
+          "it gets small" milestone — and where GGUF enters alongside <code>ds4</code>'s parser.</p>
+        <p class="artifact"><code>fs</code> runs a quantized model; memory drops, decode speeds up.</p>
+        <p class="when">doc → lands with the milestone</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">MILESTONE M6 · ☐ TODO</p>
+        <h3>Metal acceleration</h3>
+        <p>Port the hot ops to MSL kernels, driven from Rust via <strong>raw Metal FFI</strong> —
+          then kernel fusion. The "feel the hardware" milestone.</p>
+        <p class="artifact">real interactive decode tok/s on the M-series GPU.</p>
+        <p class="when">doc → lands with the milestone</p>
+      </div>
+
+      <div class="card learn-card stub">
+        <p class="lnum">MILESTONE M7+ · ☐ STRETCH</p>
+        <h3>Stretch goals</h3>
+        <p>Pick by interest once the core engine breathes: speculative decoding, MoE routing,
+          DeepSeek-style compressed attention (MLA), on-disk KV / SSD streaming, a tiny REPL.</p>
+        <p class="artifact">the leap toward <code>ds4</code>'s actual model.</p>
+        <p class="when">doc → per goal, if we take it</p>
+      </div>
+
+    </div>
+
+    <div class="callout prose" style="margin-top:1.6rem">
+      <strong>One numbering wrinkle.</strong> The doc filenames run one ahead of the milestone
+      number, because <code>00-map</code> is the overview: <strong>M0 → <code>01-tokenizer</code></strong>,
+      <strong>M1 → <code>02-weights</code></strong>, <strong>M2 → <code>03-forward-pass</code></strong>,
+      and so on. The links above already point at the right file, so you never have to do the math.
+    </div>
+
+    <p class="prose" style="margin-top:1.4rem">The full curriculum — verify steps, book/page
+      cross-links, and <code>ds4</code> references for each milestone — lives in
+      <a href="https://github.com/curtisalexander/fs/blob/main/PLAN.md"><code>PLAN.md</code></a>;
+      the running "where are we" is
+      <a href="https://github.com/curtisalexander/fs/blob/main/PROGRESS.md"><code>PROGRESS.md</code></a>.</p>
+  </div>
+</section>
+
+<!-- ============================== FOOTER ============================== -->
+<footer class="site-footer">
+  <div class="container">
+    <p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by
+      building it. The milestones are the build; the <a href="./learnings/index.html">learnings</a>
+      are the notes.</p>
+    <p class="meta">This page distills <code>PLAN.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="./assets/js/app.js"></script>
+</body>
+</html>

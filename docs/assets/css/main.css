@@ -454,3 +454,8 @@ html[data-theme="light"] .ic-moon { display: inline; }
   margin-top: auto; padding-top: 0.7rem; }
 .learn-card.stub { opacity: 0.66; border-style: dashed; }
 .learn-card.stub .lnum { color: var(--dusk); }
+
+/* the milestones index reuses .learn-card; these tune each card */
+.learn-card .artifact { font-size: 0.86rem; color: var(--text-mute); margin: 0.2rem 0 0; }
+.learn-card.current-ms { border-color: var(--ember);
+  background: color-mix(in oklab, var(--ember) 8%, var(--surface)); }
