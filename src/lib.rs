@@ -13,3 +13,8 @@ pub mod tokenizer;
 pub mod config;
 pub mod inspect;
 pub mod safetensors;
+
+// M2 — forward pass → logits: widen the weights to f32 and run the network on the
+// CPU (`fs logits`). `tensor` is the row-major `Matrix` everything computes over.
+pub mod forward;
+pub mod tensor;

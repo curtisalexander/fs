@@ -4,9 +4,71 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ next). **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design dialogue done + scaffold landed**; bodies next). Decisions locked (Session 15): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, HF oracle in fp32, tol ~1e-4 · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. `src/tensor.rs` + `src/forward.rs` scaffolded with real signatures + docstrings + `todo!()` bodies (M0/M1 cadence), wired end to end, **build + clippy clean, 53 pass / 3 ignored**. **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **New Milestones index** [`docs/milestones.html`](docs/milestones.html) is the "Milestones" nav destination site-wide (distills `PLAN.md`); **milestone docs renamed `mN-`** so filename = milestone ID (`m0-tokenizer`, `m1-weights`; next is `m2-forward-pass`). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
+
+---
+
+## Session 15 — 2026-07-21 — M2 design dialogue + full forward-pass scaffold
+
+**Why:** open M2 (forward pass → logits) the way M1 opened — a design dialogue
+first (no engine code), lock the milestone's shape, then lay out the *whole*
+helper surface as a readable `todo!()` scaffold before implementing any body.
+
+**Design decisions locked (the dialogue):**
+- **Tensor type = `Matrix{data, rows, cols}`** — row-major f32, *no strides*.
+  Weighed against raw `&[f32]` and a strided ndarray-lite; chose the middle:
+  shapes are self-describing + asserted, layout stays obviously contiguous, and
+  the eventual transpose-for-speed becomes an *explicit, measurable* copy rather
+  than hidden stride magic. Strides still get taught as the blob-indexing math in
+  `learnings/08`.
+- **f32 compute throughout; HF oracle in fp32** so golden vectors are an
+  apples-to-apples tight match (tol ~1e-4), not a chase of the reference's bf16
+  rounding. bf16-compute is deferred as a later memory/bandwidth lesson (grounded
+  the bf16-vs-f32 tradeoff: same 8-bit exponent/range, 7 vs 23 mantissa bits →
+  ½ memory + bandwidth but ~3 digits; standard practice = store bf16, accumulate
+  f32).
+- **Layered golden checkpoints** (embedding out / block-0 out / final-norm out /
+  logits) so a mismatch bisects to the stage that broke.
+- **Scope: single forward, prefill only** — no sampling, KV cache, or generation
+  loop (M3/M4). Last-position logits only.
+- **bf16→f32 widened per-tensor on load** into an owned f32 working copy
+  (`bf16_to_f32`, written-but-unused since M1, finally gets its caller).
+- **CLI verb = `fs logits <TEXT>`** (names the deliverable, like tokenize/inspect;
+  the progression is tokenize→inspect→logits→chat).
+- **Module split:** `src/tensor.rs` (the `Matrix` + pure linear algebra) and
+  `src/forward.rs` (the architecture) — a natural, one-off split.
+
+**Scaffold landed (sketch-first, `todo!()` bodies, real signatures + teaching
+docstrings, `cargo build` + `clippy` green):**
+- `src/tensor.rs` — `Matrix` (`zeros`/`from_vec`/`row`/`row_mut`, shape-asserted)
+  + `matmul` (textbook `A·B`) + `linear` (`y = x·Wᵀ` for `[out,in]` weights — the
+  "contiguous W rows, no transpose" payoff) + shape-first `Display`. Two ignored
+  known-answer tests ready to flip green.
+- `src/forward.rs` — the whole pass: `Weights`/`LayerWeights` (f32 working copy) +
+  `Weights::load`/`matrix_from`/`vector_from`; the ops `embedding_gather`,
+  `rms_norm`(+`_rows`), `silu`, `Rope::{new,apply}` (HF rotate-half),
+  `attention_one_head` → `multi_head_attention` (GQA + Qwen3 QK-norm),
+  `swiglu_ffn`, `transformer_block` (pre-norm residuals), `forward`, `top_k`,
+  `run`; `ForwardError` (config/safetensors/tokenizer + `MissingTensor`/
+  `ShapeMismatch`). Module doc carries the residual-bus + one-block shape diagrams.
+- Wiring: `lib.rs` exports `forward` + `tensor`; `fs logits <TEXT>` added to
+  `main.rs` dispatch + USAGE (top-k = 10). Scaffold conveniences to retire as
+  bodies land: the module `#![allow(dead_code, unused_variables, unused_imports)]`
+  and the `#[ignore]`s.
+
+**Verify:** `cargo build` + `cargo clippy --all-targets` clean; **53 pass / 0 fail
+/ 3 ignored** (the 3 are the scaffold's todo!()-guarded known-answer tests).
+
+**Next:** implement bottom-up (M0/M1 cadence): `matmul` → `linear` → `rms_norm` →
+`embedding_gather` → `Rope` → `attention_one_head` → `multi_head_attention` →
+`swiglu_ffn` → `transformer_block` → `Weights::load` → `forward` → `run`. Open
+question to settle: write `scripts/gen_golden.py` (HF Qwen3 in fp32, layered
+checkpoints) **early** — leaning yes, so ops are checkable against real numbers
+from `attention_one_head` onward, not just at final logits. Then graduate
+`learnings/08` (row-major & strides) when gather/matmul first indexes the blob,
+and write `docs/m2-forward-pass.md` at milestone close.
 
 ---
 

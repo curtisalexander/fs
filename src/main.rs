@@ -23,12 +23,14 @@ USAGE:
     fs tokenize <TEXT>       Encode TEXT into token IDs
     fs detokenize <IDS...>   Decode token IDs (space-separated) back into text
     fs inspect [DIR]         Print the model architecture + tensor table
+    fs logits <TEXT>         Forward pass; print the top-k next-token guesses
     fs help                  Show this message
 
 EXAMPLES:
     fs tokenize \"hello world\"
     fs detokenize 14990 1879
     fs inspect models/qwen3-0.6b
+    fs logits \"The capital of France is\"
 
 SETUP:
     Tokenizer assets load from ./models/qwen3-0.6b/.
@@ -43,6 +45,7 @@ fn main() -> ExitCode {
         Some((cmd, rest)) if cmd == "tokenize" => cmd_tokenize(rest),
         Some((cmd, rest)) if cmd == "detokenize" => cmd_detokenize(rest),
         Some((cmd, rest)) if cmd == "inspect" => cmd_inspect(rest),
+        Some((cmd, rest)) if cmd == "logits" => cmd_logits(rest),
         Some((cmd, _)) if matches!(cmd.as_str(), "help" | "--help" | "-h") => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -123,6 +126,26 @@ fn cmd_detokenize(args: &[String]) -> ExitCode {
         }
         Err(e) => {
             eprintln!("fs detokenize: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// How many ranked next-token guesses `fs logits` prints.
+const DEFAULT_TOP_K: usize = 10;
+
+/// `fs logits <TEXT>` — run the forward pass on TEXT and print the top-k most
+/// likely next tokens (id, logit, decoded piece). M2's runnable artifact.
+fn cmd_logits(args: &[String]) -> ExitCode {
+    let Some(text) = args.first() else {
+        eprintln!("fs logits: missing TEXT argument\n");
+        eprint!("{USAGE}");
+        return ExitCode::FAILURE;
+    };
+    match fs::forward::run(MODEL_DIR, text, DEFAULT_TOP_K) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("fs logits: {e}");
             ExitCode::FAILURE
         }
     }
