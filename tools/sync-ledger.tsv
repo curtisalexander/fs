@@ -5,19 +5,19 @@
 # has changed since — i.e. when a page is due for a re-read.
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
-docs/index.html	docs/00-map.md,docs/prerequisites.md	ced610d
-docs/milestones.html	PLAN.md	3ede850
-docs/prerequisites.html	docs/prerequisites.md	ced610d
-docs/diagrams.html	docs/00-map.md	ced610d
-docs/m0-tokenizer.html	docs/m0-tokenizer.md	ced610d
-docs/m1-weights.html	docs/m1-weights.md	ced610d
-docs/learnings/index.html	docs/learnings/README.md	ced610d
-docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	ced610d
-docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	ced610d
-docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	ced610d
-docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	ced610d
-docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	ced610d
-docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	ced610d
-docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	ced610d
-docs/learnings/09-config.html	docs/learnings/09-config.md	ced610d
-docs/learnings/10-transformer-block-anatomy.html	docs/learnings/10-transformer-block-anatomy.md	ced610d
+docs/index.html	docs/00-map.md,docs/prerequisites.md	4d9fe50
+docs/milestones.html	PLAN.md	4d9fe50
+docs/prerequisites.html	docs/prerequisites.md	4d9fe50
+docs/diagrams.html	docs/00-map.md	4d9fe50
+docs/m0-tokenizer.html	docs/m0-tokenizer.md	4d9fe50
+docs/m1-weights.html	docs/m1-weights.md	4d9fe50
+docs/learnings/index.html	docs/learnings/README.md	4d9fe50
+docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	4d9fe50
+docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	4d9fe50
+docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	4d9fe50
+docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	4d9fe50
+docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	4d9fe50
+docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	4d9fe50
+docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	4d9fe50
+docs/learnings/09-config.html	docs/learnings/09-config.md	4d9fe50
+docs/learnings/10-transformer-block-anatomy.html	docs/learnings/10-transformer-block-anatomy.md	4d9fe50

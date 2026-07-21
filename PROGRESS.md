@@ -6,7 +6,39 @@
 
 **Current milestone:** M2 — Forward pass → logits (◐ next). **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **New Milestones index** [`docs/milestones.html`](docs/milestones.html) is the "Milestones" nav destination site-wide (distills `PLAN.md`); **milestone docs renamed `mN-`** so filename = milestone ID (`m0-tokenizer`, `m1-weights`; next is `m2-forward-pass`). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
+
+---
+
+## Session 14 — 2026-07-21 — Milestones index page; milestone docs renamed `mN-`
+
+**Why:** the site's "Milestones" nav was confusing. It pointed at a *single*
+milestone doc (`02-weights.html`), inconsistently per page — there was no page that
+was actually "the milestones," and the doc filenames (`01-`, `02-`) ran one ahead of
+the milestone numbers (M0, M1) because `00-map` is the overview. Two fixes.
+
+**1 — New Milestones index** [`docs/milestones.html`](docs/milestones.html): the
+M0→M7 curriculum distilled from `PLAN.md`. Progress strip (2/7, M2 now) + one card
+per milestone (status · what it does · `fs …` artifact · link to the writeup for done
+ones). Reuses `.learn-card`; two small scoped CSS rules (`.artifact`, `.current-ms`).
+Swept the **"Milestones" nav on all pages** to point here (was `02-weights.html`);
+the home `#status` widget gained a "See all milestones →" teaser link; registered in
+`tools/sync-ledger.tsv` against `PLAN.md` (**in sync**).
+
+**2 — Renamed milestone docs to `mN-`** so the filename *is* the milestone ID:
+`01-tokenizer → m0-tokenizer`, `02-weights → m1-weights` (both `.md` + `.html`, via
+`git mv` — history preserved). Swept all 56 references across 13 files (nav, footers,
+milestones cards, `fs-distills` meta, ledger, `PLAN`/`PROGRESS`/`README`, learnings,
++ two doc-comments in `src/tokenizer.rs`). Rewrote the *logic* too: `PLAN.md`'s
+"next numbered doc after the map" → "named for it, `mN-`", and the milestones-page
+callout that *explained the offset* now says filenames match the milestone (docs
+without an `mN-` prefix — the map, prerequisites — are context, not milestones).
+Convention going forward: **M2's writeup will be `docs/m2-forward-pass.md`.**
+
+**State:** no Rust behavior changed (only doc-comments); site links all resolve,
+sync-check green. Two commits pushed to `main` (`5cf2a05` index page, `4d9fe50` rename).
+
+**Next:** unchanged — M2 forward pass (`fs logits`), then its `m2-forward-pass` doc.
 
 ---
 
