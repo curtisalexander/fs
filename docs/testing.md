@@ -92,8 +92,18 @@ writes committed JSON so `cargo test` can stay Rust-only.
 
 - **M1 weights:** config values, tensor names, shapes, dtypes, counts, and a few
   checksums match the downloaded model.
-- **M2 logits:** fixed prompt logits match the official implementation within a
-  documented tolerance.
+- **M2 logits:** the fixed prompt `"The capital of France is"` matches the official
+  implementation at four layered fp32 checkpoints: embedding output, block-0
+  output, final-norm output, and last-position logits. The manifest records exact
+  shapes, axis meanings, checkpoint boundaries, pinned model revision, source-
+  asset hashes, and canonical runtime; raw little-endian f32 files keep the
+  complete vectors compact. Compare with `atol = 1e-4`, `rtol = 1e-4` so failures
+  bisect to the first divergent stage. Regenerate with:
+
+  ```sh
+  uv run --directory scripts --frozen fetch_model.py --weights
+  uv run --directory scripts --frozen gen_forward_golden.py
+  ```
 - **M3 generation:** greedy decoding reproduces a reference continuation.
 - **M4 KV cache:** cached and uncached decode produce the same tokens; cached
   decode is measurably faster.
@@ -104,5 +114,5 @@ writes committed JSON so `cargo test` can stay Rust-only.
 
 ## Open testing decisions
 
-- The exact tolerance policy for floating-point comparisons in M2+.
-- The format for larger golden tensors/logits, if JSON becomes too bulky.
+- Whether later, much larger golden tensors need chunked comparison instead of
+  M2's manifest + raw-f32 format.

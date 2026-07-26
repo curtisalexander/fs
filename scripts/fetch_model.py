@@ -22,6 +22,9 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 
 REPO_ID = "Qwen/Qwen3-0.6B"
+# Pin the exact official snapshot used to generate committed golden vectors.
+# Asset SHA-256s in the forward manifest provide the second half of provenance.
+REVISION = "c1899de289a04d12100db370d81485cdf75e47ca"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEST = REPO_ROOT / "models" / "qwen3-0.6b"
 
@@ -44,7 +47,7 @@ def fetch(files: list[str]) -> None:
     DEST.mkdir(parents=True, exist_ok=True)
     for name in files:
         print(f"  - {name} ... ", end="", flush=True)
-        path = hf_hub_download(repo_id=REPO_ID, filename=name, local_dir=DEST)
+        path = hf_hub_download(repo_id=REPO_ID, revision=REVISION, filename=name, local_dir=DEST)
         size_mb = Path(path).stat().st_size / 1e6
         print(f"ok ({size_mb:.2f} MB)")
 

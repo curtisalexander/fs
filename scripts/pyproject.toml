@@ -7,10 +7,22 @@ description = "Setup + data-generation scripts for Failed Star (fs). Run with uv
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "huggingface-hub>=0.34",  # idempotent, cached downloads from the HF Hub
+    "numpy>=1.26,<3",         # portable little-endian f32 fixture serialization
     "tokenizers>=0.21",       # the OFFICIAL tokenizer, used only as a golden oracle
+    "torch>=2.7,<3",          # fp32 tensor runtime for the one-shot M2 oracle
+    "transformers>=4.51,<5",  # official Qwen3 implementation for M2 checkpoints
 ]
 
 [tool.uv]
 # This is a collection of scripts, not an installable package — so don't try to
 # build `fs-scripts` itself; just resolve + pin its dependencies into uv.lock.
 package = false
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+# The oracle is intentionally CPU-only; avoid pulling PyPI's CUDA runtime stack.
+torch = { index = "pytorch-cpu" }

@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "model": {
+    "repo_id": "Qwen/Qwen3-0.6B",
+    "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+    "config_sha256": "660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd",
+    "tokenizer_sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+    "tokenizer_config_sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+    "weights_sha256": "f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b"
+  },
+  "input": {
+    "prompt": "The capital of France is",
+    "add_special_tokens": false,
+    "input_ids": [
+      785,
+      6722,
+      315,
+      9625,
+      374
+    ],
+    "attention_mask": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "position_ids": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "cache_position": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "reference": {
+    "transformers": "4.57.6",
+    "torch": "2.13.0+cpu",
+    "python": "3.11.6",
+    "os": "Linux",
+    "architecture": "x86_64",
+    "device": "cpu",
+    "checkpoint_dtype": "bfloat16",
+    "parameter_dtype": "float32",
+    "activation_dtype": "float32",
+    "attention_implementation": "eager",
+    "eval": true,
+    "inference_mode": true,
+    "use_cache": false,
+    "logits_to_keep": 1,
+    "deterministic_algorithms": true,
+    "torch_threads": 1,
+    "lm_head": "tied to model.embed_tokens.weight"
+  },
+  "fixture": {
+    "layout": "C-row-major",
+    "batch_axis_removed": true,
+    "byte_order": "little-endian"
+  },
+  "tolerance": {
+    "absolute": 0.0001,
+    "relative": 0.0001
+  },
+  "checkpoints": {
+    "embedding": {
+      "file": "embedding.f32",
+      "dtype": "f32-le",
+      "shape": [
+        5,
+        1024
+      ],
+      "elements": 5120,
+      "bytes": 20480,
+      "sha256": "3980fd9693f25ffce39f3e4b0ae2732ad55729d7e9c116e46a3dbe5c52aa6a16",
+      "axes": [
+        "sequence",
+        "hidden"
+      ],
+      "boundary": "embedding output before decoder layer 0"
+    },
+    "block_0": {
+      "file": "block_0.f32",
+      "dtype": "f32-le",
+      "shape": [
+        5,
+        1024
+      ],
+      "elements": 5120,
+      "bytes": 20480,
+      "sha256": "f2c30a905d36e95b412afc3269ac575d6f4c990961fb2f52a1b8a29b64618e78",
+      "axes": [
+        "sequence",
+        "hidden"
+      ],
+      "boundary": "decoder layer 0 output after MLP residual"
+    },
+    "final_norm": {
+      "file": "final_norm.f32",
+      "dtype": "f32-le",
+      "shape": [
+        5,
+        1024
+      ],
+      "elements": 5120,
+      "bytes": 20480,
+      "sha256": "0c95c204d2af7e501cf779e7521424e7d159a54fb2ad1cdd7b6ee44fdb94d8af",
+      "axes": [
+        "sequence",
+        "hidden"
+      ],
+      "boundary": "final RMSNorm output"
+    },
+    "logits": {
+      "file": "logits.f32",
+      "dtype": "f32-le",
+      "shape": [
+        151936
+      ],
+      "elements": 151936,
+      "bytes": 607744,
+      "sha256": "5d644b1fa9312dc249992b89ac7a560dd1d97bc2f5ce88af0931e4c6e66c644a",
+      "axes": [
+        "vocabulary"
+      ],
+      "boundary": "lm_head output for the last sequence position"
+    }
+  }
+}

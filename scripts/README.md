@@ -9,26 +9,31 @@ so the only prerequisite is `uv` itself.
 
 ```sh
 # 1. Fetch Qwen3-0.6B tokenizer assets (~16 MB) into ../models/qwen3-0.6b/
-uv run --directory scripts fetch_model.py
+uv run --directory scripts --frozen fetch_model.py
 
 # 1b. (later, M1) also fetch the 1.5 GB weights
-uv run --directory scripts fetch_model.py --weights
+uv run --directory scripts --frozen fetch_model.py --weights
 
 # 2. Generate golden token-ID vectors from the OFFICIAL tokenizer
 #    -> ../tests/golden/tokenizer.json  (our M0 correctness oracle)
-uv run --directory scripts gen_golden.py
+uv run --directory scripts --frozen gen_golden.py
+
+# 3. Generate layered fp32 forward-pass checkpoints from OFFICIAL Qwen3
+#    -> ../tests/golden/forward/  (our M2 correctness oracle)
+uv run --directory scripts --frozen gen_forward_golden.py
 ```
 
-`uv run` auto-syncs the locked environment first, so the first call may download
-a managed Python + the deps; subsequent calls are instant.
+`uv run --frozen` syncs from the age-gated lock without re-resolving it, so the
+first call may download a managed Python + the deps; subsequent calls are instant.
 
 ## What's here
 
 | File | Does |
 |---|---|
-| `fetch_model.py` | Downloads tokenizer/config files (and optionally weights) from the HF Hub. Skips files already present. |
+| `fetch_model.py` | Downloads tokenizer/config files (and optionally weights) from the pinned official HF revision. Skips files already present. |
 | `gen_golden.py`  | Runs the official `tokenizers` library to produce reference encode/decode results our Rust impl must match. |
-| `pyproject.toml` | Pinned dependency set (`huggingface_hub`, `tokenizers`). |
+| `gen_forward_golden.py` | Runs official Qwen3 once in eager CPU fp32 and records embedding, block-0, final-norm, and last-position-logit checkpoints. |
+| `pyproject.toml` | Pinned dependency set for fetching and the tokenizer/forward oracles. |
 
 ## Why Python here at all
 

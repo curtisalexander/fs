@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ ! -x "$HOME/.local/bin/uv" ]]; then
+  echo "Installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+
+if [[ ! -x "$HOME/.cargo/bin/rustup" ]]; then
+  echo "Installing the stable Rust toolchain..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --profile minimal --default-toolchain stable
+fi
+
+profile_marker="# Failed Star orb toolchains"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# Failed Star orb toolchains
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+EOF
+fi
+
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+echo "Ensuring Rust lint tooling is installed..."
+rustup component add clippy
+
+echo "Syncing the locked Python oracle environment..."
+uv sync --directory "$repo_root/scripts" --frozen
+
+echo "Fetching locked Rust dependencies..."
+cargo fetch --manifest-path "$repo_root/Cargo.toml" --locked

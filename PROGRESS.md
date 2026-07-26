@@ -4,9 +4,54 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ current — **design dialogue done + scaffold landed**; bodies next). Decisions locked (Session 15): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, HF oracle in fp32, tol ~1e-4 · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. `src/tensor.rs` + `src/forward.rs` scaffolded with real signatures + docstrings + `todo!()` bodies (M0/M1 cadence), wired end to end, **build + clippy clean, 53 pass / 3 ignored**. **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design + scaffold + layered fp32 oracle landed**; numeric bodies next). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. `src/tensor.rs` + `src/forward.rs` scaffolded with real signatures + docstrings + `todo!()` bodies (M0/M1 cadence), wired end to end, **build + clippy clean, 53 pass / 3 ignored**. **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **New Milestones index** [`docs/milestones.html`](docs/milestones.html) is the "Milestones" nav destination site-wide (distills `PLAN.md`); **milestone docs renamed `mN-`** so filename = milestone ID (`m0-tokenizer`, `m1-weights`; next is `m2-forward-pass`). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
+
+---
+
+## Session 17 — 2026-07-26 — M2 layered fp32 golden-vector oracle
+
+**Why:** build the official reference checkpoints before implementing the M2
+numeric bodies, so a mismatch identifies the first broken stage instead of only
+reporting bad final logits.
+
+**Oracle:** added `scripts/gen_forward_golden.py`, separate from M0's tokenizer
+generator. It loads the pinned official Qwen3-0.6B revision
+`c1899de289a04d12100db370d81485cdf75e47ca`, rejects non-exact loads, asserts all
+source tensors are bf16 and all materialized parameters are CPU f32, forces eager
+attention + eval + inference mode + no cache + deterministic single-threaded CPU
+execution, and hooks the exact architecture boundaries. Prompt `"The capital of
+France is"` tokenizes to `[785, 6722, 315, 9625, 374]`.
+
+**Committed fixture shape:** `tests/golden/forward/manifest.json` records the model
+revision + hashes of config/tokenizer/tokenizer-config/weights, explicit input/
+position/cache IDs, package/platform/dtype/backend settings, `atol=rtol=1e-4`,
+axis legends, and semantic checkpoint boundaries. Four complete C-row-major
+little-endian f32 files total **669,184 bytes**: embedding `[5,1024]`, block-0
+output `[5,1024]`, final-norm output `[5,1024]`, and last-position logits
+`[151936]`. Highest logit is token `12095`, `" Paris"`, at `17.49885` — the desired
+reality check. Two full generations were byte-identical; independent review also
+confirmed the embedding is the exact widened table rows and logits equal the
+final normalized row projected through the widened tied embedding.
+
+**Pipeline/docs:** `fetch_model.py` now pins the same HF revision; Python adds
+age-gated, locked `transformers` + CPU-only `torch` (official CPU wheel index) +
+NumPy. Added `.agents/setup` because the orb lacked uv/Rust; it installs uv + stable
+Rust + clippy, syncs the frozen oracle environment, and fetches Cargo deps; verified
+idempotent twice and from a clean login shell. Updated `scripts/README.md` and
+`docs/testing.md`. License check found no GPL-family dependencies; reviewed its
+two warnings: `certifi` is an unmodified oracle-only MPL certificate-data package,
+and transitive `tqdm` offers MIT alongside MPL, acceptable under the repo policy.
+
+**Verify:** oracle generated twice byte-for-byte; fixture byte counts/checksums and
+top logits validated; `cargo build` + **53 pass / 3 scaffold ignored** + clippy
+clean. `sync-check.sh` reports pre-existing no-baseline ledger state in this shallow
+checkout; `docs/testing.md` has no HTML distillation, so no ledger stamp is due.
+
+**Next:** implement `Matrix::matmul` then `Matrix::linear`, enable their known-answer
+tests, then implement/test `rms_norm`. Use the embedding golden as the first real
+checkpoint when `embedding_gather` lands.
 
 ---
 
