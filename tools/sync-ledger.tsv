@@ -5,20 +5,20 @@
 # has changed since — i.e. when a page is due for a re-read.
 #
 # Format (tab-separated):  <html_path>	<comma,separated,sources>	<synced_commit>
-docs/index.html	docs/00-map.md,docs/prerequisites.md	4d9fe50
-docs/milestones.html	PLAN.md	4d9fe50
-docs/prerequisites.html	docs/prerequisites.md	4d9fe50
-docs/diagrams.html	docs/00-map.md	4d9fe50
-docs/m0-tokenizer.html	docs/m0-tokenizer.md	4d9fe50
-docs/m1-weights.html	docs/m1-weights.md	4d9fe50
-docs/learnings/index.html	docs/learnings/README.md	4d9fe50
-docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	4d9fe50
-docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	4d9fe50
-docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	4d9fe50
-docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	4d9fe50
-docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	4d9fe50
-docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	4d9fe50
-docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	4d9fe50
-docs/learnings/08-row-major-strides.html	docs/learnings/08-row-major-strides.md	4d9fe50
-docs/learnings/09-config.html	docs/learnings/09-config.md	4d9fe50
-docs/learnings/10-transformer-block-anatomy.html	docs/learnings/10-transformer-block-anatomy.md	4d9fe50
+docs/index.html	docs/00-map.md,docs/prerequisites.md	c4d8349
+docs/milestones.html	PLAN.md	c4d8349
+docs/prerequisites.html	docs/prerequisites.md	c4d8349
+docs/diagrams.html	docs/00-map.md	c4d8349
+docs/m0-tokenizer.html	docs/m0-tokenizer.md	c4d8349
+docs/m1-weights.html	docs/m1-weights.md	c4d8349
+docs/learnings/index.html	docs/learnings/README.md	c4d8349
+docs/learnings/01-safetensors-vs-gguf.html	docs/learnings/01-safetensors-vs-gguf.md	c4d8349
+docs/learnings/02-radix-tree.html	docs/learnings/02-radix-tree.md	c4d8349
+docs/learnings/03-bpe.html	docs/learnings/03-bpe.md	c4d8349
+docs/learnings/04-embedding-models.html	docs/learnings/04-embedding-models.md	c4d8349
+docs/learnings/05-reading-shapes.html	docs/learnings/05-reading-shapes.md	c4d8349
+docs/learnings/06-mmap.html	docs/learnings/06-mmap.md	c4d8349
+docs/learnings/07-bf16.html	docs/learnings/07-bf16.md	c4d8349
+docs/learnings/08-row-major-strides.html	docs/learnings/08-row-major-strides.md	c4d8349
+docs/learnings/09-config.html	docs/learnings/09-config.md	c4d8349
+docs/learnings/10-transformer-block-anatomy.html	docs/learnings/10-transformer-block-anatomy.md	c4d8349
