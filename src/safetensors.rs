@@ -73,7 +73,10 @@ impl Mmap {
         use std::os::fd::AsRawFd;
 
         // Every failure below should name the file it was mapping.
-        let fail = |message: String| SafeTensorsError::MapFailed { path: path.to_string(), message };
+        let fail = |message: String| SafeTensorsError::MapFailed {
+            path: path.to_string(),
+            message,
+        };
 
         // 1. Open the file → an OS file descriptor (the kernel's handle to it).
         let file = std::fs::File::open(path).map_err(|e| fail(e.to_string()))?;
@@ -95,7 +98,14 @@ impl Mmap {
         //      PROT_READ → read-only pages · MAP_PRIVATE → copy-on-write, private to us
         //      fd → which file · offset=0 → from the first byte
         let ptr = unsafe {
-            mmap(std::ptr::null_mut(), len, PROT_READ, MAP_PRIVATE, file.as_raw_fd(), 0)
+            mmap(
+                std::ptr::null_mut(),
+                len,
+                PROT_READ,
+                MAP_PRIVATE,
+                file.as_raw_fd(),
+                0,
+            )
         };
 
         // 5. Failure is MAP_FAILED = (void*)-1, *not* null — a null check would miss
@@ -106,7 +116,10 @@ impl Mmap {
 
         // The fd has done its job: a live mapping keeps its own reference to the file,
         // so `file` can drop here (closing the fd) without tearing the mapping down.
-        Ok(Mmap { ptr: ptr as *const u8, len })
+        Ok(Mmap {
+            ptr: ptr as *const u8,
+            len,
+        })
     }
 
     /// The mapped bytes as a slice. Safe to expose: the mapping is read-only and
@@ -145,7 +158,9 @@ impl Dtype {
             "BF16" => Ok(Dtype::BF16),
             "F16" => Ok(Dtype::F16),
             "F32" => Ok(Dtype::F32),
-            other => Err(SafeTensorsError::UnknownDtype { dtype: other.to_string() }),
+            other => Err(SafeTensorsError::UnknownDtype {
+                dtype: other.to_string(),
+            }),
         }
     }
 
@@ -232,7 +247,10 @@ impl SafeTensors {
         //    A file too short to even hold that count is truncated.
         if bytes.len() < 8 {
             return Err(SafeTensorsError::Truncated {
-                message: format!("need 8 bytes for the header length, file has {}", bytes.len()),
+                message: format!(
+                    "need 8 bytes for the header length, file has {}",
+                    bytes.len()
+                ),
             });
         }
         // `try_into` on the fixed 8-byte slice can't fail — we just checked the len.
@@ -255,11 +273,15 @@ impl SafeTensors {
         // 4. Parse the header as a JSON object (name → tensor info, plus the one
         //    reserved `__metadata__` key). serde_json owns "are these bytes JSON?"
         //    — that's not the lesson (see the M0 dependency note).
-        let header: serde_json::Value = serde_json::from_slice(header_bytes)
-            .map_err(|e| SafeTensorsError::BadHeader { message: e.to_string() })?;
-        let obj = header.as_object().ok_or_else(|| SafeTensorsError::BadHeader {
-            message: "top-level header is not a JSON object".into(),
-        })?;
+        let header: serde_json::Value =
+            serde_json::from_slice(header_bytes).map_err(|e| SafeTensorsError::BadHeader {
+                message: e.to_string(),
+            })?;
+        let obj = header
+            .as_object()
+            .ok_or_else(|| SafeTensorsError::BadHeader {
+                message: "top-level header is not a JSON object".into(),
+            })?;
 
         // 5. Walk each entry into the tensor directory. JSON object keys are unique,
         //    so no duplicate-name check is needed.
@@ -284,9 +306,19 @@ impl SafeTensors {
         // Present tensors in physical blob order — stable, and it mirrors how the
         // file is actually laid out (serde_json's map order is otherwise incidental).
         tensors.sort_by_key(|t| t.start);
-        let index = tensors.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
+        let index = tensors
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.name.clone(), i))
+            .collect();
 
-        Ok(SafeTensors { mmap, data_start, tensors, index, metadata })
+        Ok(SafeTensors {
+            mmap,
+            data_start,
+            tensors,
+            index,
+            metadata,
+        })
     }
 
     /// All tensors, in file order (what `inspect` walks).
@@ -326,9 +358,14 @@ fn parse_tensor_entry(
     blob_len: usize,
 ) -> Result<Tensor, SafeTensorsError> {
     // Every failure below names the offending tensor.
-    let bad = |message: String| SafeTensorsError::BadTensorInfo { name: name.to_string(), message };
+    let bad = |message: String| SafeTensorsError::BadTensorInfo {
+        name: name.to_string(),
+        message,
+    };
 
-    let obj = info.as_object().ok_or_else(|| bad("entry is not a JSON object".into()))?;
+    let obj = info
+        .as_object()
+        .ok_or_else(|| bad("entry is not a JSON object".into()))?;
 
     // dtype — a string like "BF16"; Dtype::parse rejects the ones we don't handle.
     let dtype_str = obj
@@ -344,7 +381,9 @@ fn parse_tensor_entry(
         .ok_or_else(|| bad("missing or non-array 'shape'".into()))?;
     let mut shape = Vec::with_capacity(shape_arr.len());
     for d in shape_arr {
-        let d = d.as_u64().ok_or_else(|| bad("shape has a non-integer dimension".into()))?;
+        let d = d
+            .as_u64()
+            .ok_or_else(|| bad("shape has a non-integer dimension".into()))?;
         shape.push(d as usize);
     }
 
@@ -354,17 +393,26 @@ fn parse_tensor_entry(
         .and_then(|v| v.as_array())
         .ok_or_else(|| bad("missing or non-array 'data_offsets'".into()))?;
     if offsets.len() != 2 {
-        return Err(bad(format!("data_offsets must have 2 elements, got {}", offsets.len())));
+        return Err(bad(format!(
+            "data_offsets must have 2 elements, got {}",
+            offsets.len()
+        )));
     }
-    let start = offsets[0].as_u64().ok_or_else(|| bad("data_offsets[0] is not an integer".into()))? as usize;
-    let end = offsets[1].as_u64().ok_or_else(|| bad("data_offsets[1] is not an integer".into()))? as usize;
+    let start = offsets[0]
+        .as_u64()
+        .ok_or_else(|| bad("data_offsets[0] is not an integer".into()))? as usize;
+    let end = offsets[1]
+        .as_u64()
+        .ok_or_else(|| bad("data_offsets[1] is not an integer".into()))? as usize;
 
     // Consistency: start ≤ end ≤ blob, and the span matches shape·dtype exactly.
     if end < start {
         return Err(bad(format!("data_offsets end {end} < start {start}")));
     }
     if end > blob_len {
-        return Err(bad(format!("data_offsets end {end} exceeds blob length {blob_len}")));
+        return Err(bad(format!(
+            "data_offsets end {end} exceeds blob length {blob_len}"
+        )));
     }
     let want_bytes = shape.iter().product::<usize>() * dtype.size();
     let got_bytes = end - start;
@@ -375,7 +423,13 @@ fn parse_tensor_entry(
         )));
     }
 
-    Ok(Tensor { name: name.to_string(), dtype, shape, start, end })
+    Ok(Tensor {
+        name: name.to_string(),
+        dtype,
+        shape,
+        start,
+        end,
+    })
 }
 
 /// Everything that can go wrong mapping/parsing a safetensors file.
@@ -437,11 +491,18 @@ mod tests {
         // Include a NUL and high bytes to prove we read raw bytes, not a UTF-8 string.
         let data: &[u8] = b"failed star \x00\x01\xfe\xff mmap";
         let path = temp_path("roundtrip");
-        std::fs::File::create(&path).unwrap().write_all(data).unwrap();
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(data)
+            .unwrap();
 
         let map = Mmap::open(path.to_str().unwrap()).expect("mapping a real file should succeed");
         assert_eq!(map.len, data.len(), "map length must equal file size");
-        assert_eq!(map.as_bytes(), data, "the mapped view is the file's bytes, zero-copy");
+        assert_eq!(
+            map.as_bytes(),
+            data,
+            "the mapped view is the file's bytes, zero-copy"
+        );
         // `map` drops at end of scope → its `munmap` runs (RAII). Then clean up.
         drop(map);
         std::fs::remove_file(&path).ok();
@@ -458,7 +519,10 @@ mod tests {
         let path = temp_path("empty");
         std::fs::File::create(&path).unwrap(); // zero bytes
         let err = Mmap::open(path.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, SafeTensorsError::MapFailed { .. }), "mmap can't map 0 bytes");
+        assert!(
+            matches!(err, SafeTensorsError::MapFailed { .. }),
+            "mmap can't map 0 bytes"
+        );
         std::fs::remove_file(&path).ok();
     }
 
@@ -467,7 +531,8 @@ mod tests {
     /// Write a safetensors file by hand: `[u64 LE header len][header JSON][blob]`.
     fn write_st(path: &std::path::Path, header_json: &str, blob: &[u8]) {
         let mut f = std::fs::File::create(path).unwrap();
-        f.write_all(&(header_json.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(&(header_json.len() as u64).to_le_bytes())
+            .unwrap();
         f.write_all(header_json.as_bytes()).unwrap();
         f.write_all(blob).unwrap();
     }
@@ -483,7 +548,10 @@ mod tests {
         let st = SafeTensors::load(path.to_str().unwrap()).expect("valid file loads");
 
         // __metadata__ is captured, not treated as a tensor.
-        assert_eq!(st.metadata().get("format").map(String::as_str), Some("test"));
+        assert_eq!(
+            st.metadata().get("format").map(String::as_str),
+            Some("test")
+        );
         assert_eq!(st.tensors().len(), 2, "metadata is not counted as a tensor");
 
         // Directory is sorted into physical blob order (a at 0, b at 8) regardless
@@ -556,7 +624,9 @@ mod tests {
         assert_eq!(st.metadata().get("format").map(String::as_str), Some("pt"));
 
         // The embedding matrix: [V, H] = [151936, 1024], all bf16, 2 bytes/elem.
-        let embed = st.tensor("model.embed_tokens.weight").expect("embed present");
+        let embed = st
+            .tensor("model.embed_tokens.weight")
+            .expect("embed present");
         assert_eq!(embed.dtype, Dtype::BF16);
         assert_eq!(embed.shape, vec![151936, 1024]);
         assert_eq!(st.bytes(embed).len(), 151936 * 1024 * 2);

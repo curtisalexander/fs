@@ -29,8 +29,8 @@
 //! A **layered golden vector** from the HF reference in fp32 — captured at the
 //! embedding output, block-0 output, final-norm output, and the logits — so a
 //! mismatch bisects to the stage that broke, not just "logits are wrong." Tight
-//! tolerance (~1e-4). Oracle is `scripts/gen_golden.py`; Python is only ever the
-//! one-shot oracle, never a second engine.
+//! tolerance (~1e-4). Oracle is `scripts/gen_forward_golden.py`; Python is only
+//! ever the one-shot oracle, never a second engine.
 //!
 //! 📖 §2.1, §2.2.2–2.2.3 · 🔧 `ds4.c` + `metal/{norm,dsv4_rope,flash_attn,glu,dense,get_rows}.metal`.
 
@@ -52,24 +52,24 @@ use crate::tokenizer::Tokenizer;
 /// The eleven weights of one transformer block (learning 10), widened to f32.
 /// Comments give each tensor's `[out, in]` shape from the config.
 pub struct LayerWeights {
-    pub input_layernorm: Vec<f32>,          // [H]        RMSNorm scale, pre-attention
-    pub q_proj: Matrix,                     // [heads·d, H]
-    pub k_proj: Matrix,                     // [kv·d,   H]
-    pub v_proj: Matrix,                     // [kv·d,   H]
-    pub q_norm: Vec<f32>,                   // [d]        per-head QK-norm scale (Qwen3)
-    pub k_norm: Vec<f32>,                   // [d]
-    pub o_proj: Matrix,                     // [H, heads·d]
+    pub input_layernorm: Vec<f32>, // [H]        RMSNorm scale, pre-attention
+    pub q_proj: Matrix,            // [heads·d, H]
+    pub k_proj: Matrix,            // [kv·d,   H]
+    pub v_proj: Matrix,            // [kv·d,   H]
+    pub q_norm: Vec<f32>,          // [d]        per-head QK-norm scale (Qwen3)
+    pub k_norm: Vec<f32>,          // [d]
+    pub o_proj: Matrix,            // [H, heads·d]
     pub post_attention_layernorm: Vec<f32>, // [H]        RMSNorm scale, pre-MLP
-    pub gate_proj: Matrix,                  // [I, H]
-    pub up_proj: Matrix,                    // [I, H]
-    pub down_proj: Matrix,                  // [H, I]
+    pub gate_proj: Matrix,         // [I, H]
+    pub up_proj: Matrix,           // [I, H]
+    pub down_proj: Matrix,         // [H, I]
 }
 
 /// The whole model's weights in f32: embeddings, `L` blocks, final norm, lm_head.
 pub struct Weights {
     pub embed_tokens: Matrix, // [V, H] — the token table (gathered, not multiplied)
     pub layers: Vec<LayerWeights>,
-    pub norm: Vec<f32>, // [H] — final RMSNorm before the head
+    pub norm: Vec<f32>,  // [H] — final RMSNorm before the head
     pub lm_head: Matrix, // [V, H] — hidden → logits (tied: a copy of embed_tokens)
 }
 
@@ -113,7 +113,17 @@ fn vector_from(st: &SafeTensors, name: &str, expect: usize) -> Result<Vec<f32>, 
 /// table. This is a *row lookup*, not a matmul — `x.row(t) = embed.row(ids[t])`.
 /// (The lm_head at the end reuses the *same* table as a matmul; see learning 10.)
 pub fn embedding_gather(embed: &Matrix, ids: &[u32]) -> Matrix {
-    todo!("allocate [seq, H]; copy embed.row(id) into row t for each token")
+    let mut out = Matrix::zeros(ids.len(), embed.cols);
+    for (t, &id) in ids.iter().enumerate() {
+        let row = usize::try_from(id).expect("embedding_gather: token id does not fit usize");
+        assert!(
+            row < embed.rows,
+            "embedding_gather: token id {id} outside vocabulary size {}",
+            embed.rows
+        );
+        out.row_mut(t).copy_from_slice(embed.row(row));
+    }
+    out
 }
 
 /// RMSNorm one vector: `y_i = x_i / sqrt(mean(x²) + eps) · w_i`.
@@ -123,20 +133,54 @@ pub fn embedding_gather(embed: &Matrix, ids: &[u32]) -> Matrix {
 /// `H` (the two block norms + final norm) and over `d` (per-head QK-norm).
 /// `x` and `w` must be the same length; compute the sum of squares in f32.
 pub fn rms_norm(x: &[f32], w: &[f32], eps: f32) -> Vec<f32> {
-    assert_eq!(x.len(), w.len(), "rms_norm: x len {} != scale len {}", x.len(), w.len());
-    // ms = Σ x_i² / n ; inv = 1/sqrt(ms + eps) ; y_i = x_i · inv · w_i
-    todo!("mean of squares → rsqrt → scale each element by inv·w_i")
+    assert_eq!(
+        x.len(),
+        w.len(),
+        "rms_norm: x len {} != scale len {}",
+        x.len(),
+        w.len()
+    );
+    assert!(!x.is_empty(), "rms_norm: vector must not be empty");
+    assert!(eps >= 0.0, "rms_norm: eps must be non-negative, got {eps}");
+
+    let mut sum_squares = 0.0;
+    for &value in x {
+        sum_squares += value * value;
+    }
+    let mean_square = sum_squares / x.len() as f32;
+    let inv_rms = 1.0 / (mean_square + eps).sqrt();
+    x.iter()
+        .zip(w)
+        .map(|(&value, &scale)| value * inv_rms * scale)
+        .collect()
 }
 
 /// Apply `rms_norm` to every row of a matrix (the common case for the `H`-wide
 /// residual stream). Returns a new `[seq, H]` matrix.
 pub fn rms_norm_rows(x: &Matrix, w: &[f32], eps: f32) -> Matrix {
-    todo!("map rms_norm over each row")
+    assert_eq!(
+        x.cols,
+        w.len(),
+        "rms_norm_rows: matrix width {} != scale len {}",
+        x.cols,
+        w.len()
+    );
+    assert!(x.cols > 0, "rms_norm_rows: matrix width must be positive");
+    assert!(
+        eps >= 0.0,
+        "rms_norm_rows: eps must be non-negative, got {eps}"
+    );
+    let mut out = Matrix::zeros(x.rows, x.cols);
+    for row in 0..x.rows {
+        out.row_mut(row)
+            .copy_from_slice(&rms_norm(x.row(row), w, eps));
+    }
+    out
 }
 
 /// SiLU (a.k.a. swish): `x · sigmoid(x)`. The SwiGLU gate's activation.
 pub fn silu(x: f32) -> f32 {
-    todo!("x / (1 + e^-x)")
+    x / (1.0 + (-x).exp())
 }
 
 /// Precomputed RoPE rotation table for a run of positions.
@@ -155,16 +199,62 @@ pub struct Rope {
 impl Rope {
     /// Build the table for positions `0..seq` at head width `head_dim`, base `theta`.
     pub fn new(seq: usize, head_dim: usize, theta: f64) -> Rope {
-        // invᵢ = theta^(-(2i)/head_dim), i in 0..head_dim/2
-        // cos[m, i] = cos(m·invᵢ) (and repeated for the second half); sin likewise.
-        todo!("fill cos/sin [seq, head_dim] from the position × inv-freq outer product")
+        assert!(
+            head_dim > 0 && head_dim.is_multiple_of(2),
+            "RoPE: head_dim must be positive and even, got {head_dim}"
+        );
+        let theta = theta as f32;
+        assert!(
+            theta.is_finite() && theta > 0.0,
+            "RoPE: theta must be positive and finite f32, got {theta}"
+        );
+
+        let half = head_dim / 2;
+        let mut cos = Matrix::zeros(seq, head_dim);
+        let mut sin = Matrix::zeros(seq, head_dim);
+        for pos in 0..seq {
+            for i in 0..half {
+                // Match the locked HF fp32 operation order exactly: exponent,
+                // power, reciprocal, position product, then trig all stay f32.
+                let exponent = (2 * i) as f32 / head_dim as f32;
+                let inv_freq = 1.0_f32 / theta.powf(exponent);
+                let angle = pos as f32 * inv_freq;
+                let c = angle.cos();
+                let s = angle.sin();
+                // HF's rotate-half convention repeats each half's frequencies.
+                cos.data[pos * head_dim + i] = c;
+                cos.data[pos * head_dim + half + i] = c;
+                sin.data[pos * head_dim + i] = s;
+                sin.data[pos * head_dim + half + i] = s;
+            }
+        }
+        Rope { cos, sin }
     }
 
     /// Rotate one head-vector `v[d]` at position `pos`, in place, using the
     /// rotate-half rule: `out = v·cos + rotate_half(v)·sin`, where
     /// `rotate_half([a | b]) = [-b | a]` (halves of width `d/2`).
     pub fn apply(&self, v: &mut [f32], pos: usize) {
-        todo!("elementwise v·cos[pos] + rotate_half(v)·sin[pos]")
+        assert_eq!(
+            v.len(),
+            self.cos.cols,
+            "RoPE::apply: vector width {} != table width {}",
+            v.len(),
+            self.cos.cols
+        );
+        assert!(
+            pos < self.cos.rows,
+            "RoPE::apply: position {pos} outside table length {}",
+            self.cos.rows
+        );
+        let half = v.len() / 2;
+        let original = v.to_vec();
+        let cos = self.cos.row(pos);
+        let sin = self.sin.row(pos);
+        for i in 0..half {
+            v[i] = original[i] * cos[i] - original[half + i] * sin[i];
+            v[half + i] = original[half + i] * cos[half + i] + original[i] * sin[half + i];
+        }
     }
 }
 
@@ -230,7 +320,28 @@ pub fn forward(weights: &Weights, cfg: &Config, ids: &[u32]) -> Vec<f32> {
 /// model's ranked next-token guesses. A partial sort is fine (k ≪ V), but M2 can
 /// start with a full sort for clarity.
 pub fn top_k(logits: &[f32], k: usize) -> Vec<(u32, f32)> {
-    todo!("argsort logits desc, take k, pair with token id")
+    assert!(
+        logits.len() <= u32::MAX as usize,
+        "top_k: {} logits do not fit u32 token ids",
+        logits.len()
+    );
+    assert!(
+        logits.iter().all(|value| value.is_finite()),
+        "top_k: logits must be finite"
+    );
+    let mut ranked: Vec<(u32, f32)> = logits
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(id, logit)| (id as u32, logit))
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .expect("top_k: finiteness checked above")
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    ranked.truncate(k.min(ranked.len()));
+    ranked
 }
 
 /// `fs logits <TEXT>` end to end.
@@ -253,9 +364,15 @@ pub enum ForwardError {
     SafeTensors(crate::safetensors::SafeTensorsError),
     Tokenizer(crate::tokenizer::TokenizerError),
     /// A tensor the forward pass needs is absent from the file.
-    MissingTensor { name: String },
+    MissingTensor {
+        name: String,
+    },
     /// A tensor is present but not the shape the config implies.
-    ShapeMismatch { name: String, got: Vec<usize>, expected: Vec<usize> },
+    ShapeMismatch {
+        name: String,
+        got: Vec<usize>,
+        expected: Vec<usize>,
+    },
 }
 
 impl std::fmt::Display for ForwardError {
@@ -264,9 +381,18 @@ impl std::fmt::Display for ForwardError {
             ForwardError::Config(e) => write!(f, "{e}"),
             ForwardError::SafeTensors(e) => write!(f, "{e}"),
             ForwardError::Tokenizer(e) => write!(f, "{e}"),
-            ForwardError::MissingTensor { name } => write!(f, "weight tensor '{name}' missing from file"),
-            ForwardError::ShapeMismatch { name, got, expected } => {
-                write!(f, "weight tensor '{name}' has shape {got:?}, expected {expected:?}")
+            ForwardError::MissingTensor { name } => {
+                write!(f, "weight tensor '{name}' missing from file")
+            }
+            ForwardError::ShapeMismatch {
+                name,
+                got,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "weight tensor '{name}' has shape {got:?}, expected {expected:?}"
+                )
             }
         }
     }
@@ -294,12 +420,104 @@ impl From<crate::tokenizer::TokenizerError> for ForwardError {
 mod tests {
     use super::*;
 
-    // Op-level unit tests land alongside each helper as we implement it (M0/M1
-    // cadence): rms_norm against a hand-computed value, embedding_gather row copy,
-    // Rope orthogonality, attention_one_head on a 2-token toy, silu/top_k. The
-    // end-to-end correctness check is the layered golden vector (see module doc),
-    // gated on the real assets like the other reality tests.
+    fn assert_close(got: f32, want: f32) {
+        assert!((got - want).abs() < 1e-6, "got {got}, want {want}");
+    }
+
     #[test]
-    #[ignore = "scaffold: forward ops are todo!()"]
-    fn placeholder() {}
+    fn embedding_gather_copies_rows_in_token_order() {
+        let embed = Matrix::from_vec(
+            4,
+            3,
+            vec![0., 1., 2., 10., 11., 12., 20., 21., 22., 30., 31., 32.],
+        );
+        let got = embedding_gather(&embed, &[2, 0, 2]);
+        assert_eq!(got.rows, 3);
+        assert_eq!(got.cols, 3);
+        assert_eq!(got.data, vec![20., 21., 22., 0., 1., 2., 20., 21., 22.]);
+    }
+
+    #[test]
+    #[should_panic(expected = "outside vocabulary size")]
+    fn embedding_gather_rejects_unknown_token_id() {
+        embedding_gather(&Matrix::zeros(2, 3), &[2]);
+    }
+
+    #[test]
+    fn rms_norm_matches_a_known_vector_and_scale() {
+        // Locked Torch fp32 result. Nonzero epsilon catches omission/placement.
+        let got = rms_norm(&[3.0, 4.0], &[2.0, 0.5], 1e-6);
+        assert_close(got[0], 1.697_056_2);
+        assert_close(got[1], 0.565_685_4);
+    }
+
+    #[test]
+    fn rms_norm_rows_preserves_the_matrix_shape() {
+        let x = Matrix::from_vec(2, 2, vec![3., 4., 0., 5.]);
+        let got = rms_norm_rows(&x, &[1., 1.], 0.0);
+        assert_eq!((got.rows, got.cols), (2, 2));
+        assert_close(got.data[0], 0.848_528_15);
+        assert_close(got.data[1], 1.131_370_9);
+        assert_close(got.data[2], 0.0);
+        assert_close(got.data[3], 2.0_f32.sqrt());
+    }
+
+    #[test]
+    fn silu_known_values() {
+        assert_eq!(silu(0.0), 0.0);
+        assert_close(silu(1.0), 0.731_058_6);
+        assert_close(silu(-1.0), -0.268_941_43);
+    }
+
+    #[test]
+    fn rope_position_zero_is_identity() {
+        let rope = Rope::new(2, 4, 10_000.0);
+        let mut v = [1., 2., 3., 4.];
+        rope.apply(&mut v, 0);
+        assert_eq!(v, [1., 2., 3., 4.]);
+    }
+
+    #[test]
+    fn rope_rotate_half_matches_the_formula_and_preserves_norm() {
+        let rope = Rope::new(2, 4, 10_000.0);
+        let original = [1., 2., 3., 4.];
+        let mut got = original;
+        rope.apply(&mut got, 1);
+
+        assert_close(got[0], 1.0_f32.cos() - 3.0 * 1.0_f32.sin());
+        assert_close(got[1], 2.0 * 0.01_f32.cos() - 4.0 * 0.01_f32.sin());
+        assert_close(got[2], 3.0 * 1.0_f32.cos() + 1.0_f32.sin());
+        assert_close(got[3], 4.0 * 0.01_f32.cos() + 2.0 * 0.01_f32.sin());
+        let before: f32 = original.iter().map(|x| x * x).sum();
+        let after: f32 = got.iter().map(|x| x * x).sum();
+        assert_close(after, before);
+    }
+
+    #[test]
+    fn rope_table_matches_hf_fp32_at_the_real_context_edge() {
+        // Locked Torch 2.13 fp32 Qwen3 values: d=128, theta=1e6, last legal
+        // position 40959. This catches accidentally computing the table in f64.
+        let rope = Rope::new(40_960, 128, 1_000_000.0);
+        let cos = rope.cos.row(40_959);
+        let sin = rope.sin.row(40_959);
+        assert_close(cos[0], 0.466_897_22);
+        assert_close(sin[0], -0.884_311_6);
+        assert_close(cos[31], 0.846_143_36);
+        assert_close(sin[31], 0.532_955_3);
+        assert_close(cos[63], 0.998_708_55);
+        assert_close(sin[63], 0.050_805_688);
+        assert_eq!(cos[0], cos[64]);
+        assert_eq!(sin[63], sin[127]);
+    }
+
+    #[test]
+    fn top_k_sorts_descending_and_breaks_ties_by_token_id() {
+        assert_eq!(
+            top_k(&[0.5, 3.0, -1.0, 3.0], 3),
+            vec![(1, 3.0), (3, 3.0), (0, 0.5)]
+        );
+        assert_eq!(top_k(&[1.0], 10), vec![(0, 1.0)]);
+        assert!(top_k(&[1.0], 0).is_empty());
+        assert_eq!(top_k(&[-0.0, 0.0], 2), vec![(0, -0.0), (1, 0.0)]);
+    }
 }

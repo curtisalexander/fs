@@ -201,11 +201,14 @@
     <p class="prose">So in M1: tensors stay <strong>raw bf16 bytes</strong>; our checksums run
       over those <strong>raw bytes</strong> (proving we read the right region of the file, not
       that we can do float math); and <code>bf16_to_f32</code> is written and unit-tested but
-      <strong>first <em>called</em> at M2</strong>, one value at a time, only for the weights a
-      given matmul actually touches.</p>
-    <p class="prose">This is <strong>“learning-first, then fast”</strong> in miniature: the
-      correct, clear thing is to convert at the point of use. Converting eagerly would be a
-      premature — and memory-doubling — optimization in the wrong direction.</p>
+      <strong>first <em>called</em> at M2</strong>.</p>
+    <p class="prose">M2 actually computes, so it deliberately makes a different tradeoff:
+      <code>Weights::load</code> widens each tensor once into an owned, contiguous f32
+      <code>Matrix</code>/vector. That working copy costs roughly twice the weight bytes (while
+      the mmap may remain resident), but every numerical helper sees one plain type and can
+      match the fp32 oracle without mixed-precision noise. <strong>M1 preserves the zero-copy
+      file view; M2 pays for the clearest compute representation.</strong> Memory/bandwidth
+      optimization comes later, after correctness.</p>
     <div class="callout">
       <strong>Mental model.</strong> bf16 = fp32 with a haircut: same range, coarser steps, half
       the bytes. To widen, shift it back into fp32's high half — free and exact. To
@@ -228,9 +231,9 @@
           mapping instead of materializing f32 (the memory-doubling this note quantifies).</li>
         <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — the shapes
           those bf16 bytes fill; dtype and shape together give each tensor's byte length.</li>
-        <li>Learning 08 · row-major &amp; strides — <em>stub, arrives at M2</em>: the
-          2-bytes-per-element the strides step over. Source:
-          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/08-row-major-strides.md"><code>08-row-major-strides.md</code></a>.</li>
+        <li><a href="./08-row-major-strides.html">Learning 08 · row-major &amp; strides</a> —
+          how the widened f32 <code>Matrix</code> turns shape + layout into gather/matmul
+          offsets.</li>
         <li>🔧 <code>src/safetensors.rs</code> — <code>Dtype</code>, <code>bf16_to_f32</code>,
           and the raw-byte checksum path. · Full note:
           <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/07-bf16.md"><code>docs/learnings/07-bf16.md</code></a>.</li>

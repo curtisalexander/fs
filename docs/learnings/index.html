@@ -58,7 +58,7 @@
 <section id="notes">
   <div class="container">
     <p class="eyebrow">The notes so far</p>
-    <h2>Nine notes, newest ideas on top of old</h2>
+    <h2>Ten notes, newest ideas on top of old</h2>
     <div class="cards">
 
       <div class="card learn-card">
@@ -134,12 +134,12 @@
         <p class="when">2026-07-14 · M1 weights</p>
       </div>
 
-      <div class="card learn-card stub">
-        <p class="lnum">LEARNING 08 · 🌱 stub</p>
-        <h3>Row-major &amp; strides</h3>
-        <p>From a shape to a byte offset: row-major layout, strides, and indexing the tensor
-          blob. To be written at M2, when we first read a weight element-by-element.</p>
-        <p class="when">planned · M2</p>
+      <div class="card learn-card">
+        <p class="lnum">LEARNING 08</p>
+        <h3><a href="./08-row-major-strides.html">Row-major layout &amp; strides</a></h3>
+        <p>How shape, layout, and strides become flat offsets — from a real embedding gather
+          through matmul and the no-physical-transpose payoff of <code>[out,in]</code>.</p>
+        <p class="when">2026-07-26 · M2 forward pass</p>
       </div>
 
     </div>

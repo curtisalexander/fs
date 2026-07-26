@@ -102,8 +102,9 @@ fs/
 ## Status
 
 🌱 **M0 — Tokenizer: ✅ done. M1 — Load the weights: ✅ done. M2 — Forward pass:
-in progress.** The full forward-pass scaffold and layered official fp32 golden
-checkpoints are landed; numeric bodies are next. `fs inspect models/qwen3-0.6b`
+in progress.** The layered official fp32 checkpoints and numerical foundation
+(matmul/linear, gather, RMSNorm, SiLU, RoPE, top-k) are landed; attention is next.
+`fs inspect models/qwen3-0.6b`
 loads `config.json` + `model.safetensors`,
 derives the expected tensor set from the config, cross-checks the file against it,
 and prints a shape-first legend + tensor table + verdict — the real model checks

@@ -99,7 +99,11 @@ pub fn expected_tensors(cfg: &Config) -> Vec<Expected> {
     // A row is `name : [out, in] (optional?)`. Every projection is stored `[out, in]`
     // (learning 05); norms are 1-D scale vectors, so their single dim is the width
     // they scale. `false` = required; the one `true` is the tied lm_head, below.
-    let e = |name: String, shape: Vec<usize>, optional: bool| Expected { name, shape, optional };
+    let e = |name: String, shape: Vec<usize>, optional: bool| Expected {
+        name,
+        shape,
+        optional,
+    };
 
     let mut out = Vec::with_capacity(3 + 11 * cfg.num_hidden_layers);
 
@@ -112,13 +116,25 @@ pub fn expected_tensors(cfg: &Config) -> Vec<Expected> {
         // attention half: norm → q/k/v → QK-norm → o, all leaving/returning the bus
         out.push(e(format!("{p}.input_layernorm.weight"), vec![h], false)); //         scale H
         out.push(e(format!("{p}.self_attn.q_proj.weight"), vec![q, h], false)); //  H ─▶ q
-        out.push(e(format!("{p}.self_attn.k_proj.weight"), vec![kv, h], false)); // H ─▶ kv
-        out.push(e(format!("{p}.self_attn.v_proj.weight"), vec![kv, h], false)); // H ─▶ kv
+        out.push(e(
+            format!("{p}.self_attn.k_proj.weight"),
+            vec![kv, h],
+            false,
+        )); // H ─▶ kv
+        out.push(e(
+            format!("{p}.self_attn.v_proj.weight"),
+            vec![kv, h],
+            false,
+        )); // H ─▶ kv
         out.push(e(format!("{p}.self_attn.q_norm.weight"), vec![d], false)); //       scale d
         out.push(e(format!("{p}.self_attn.k_norm.weight"), vec![d], false)); //       scale d
         out.push(e(format!("{p}.self_attn.o_proj.weight"), vec![h, q], false)); //  q ─▶ H
         // mlp half (SwiGLU): norm → gate/up → down, back onto the bus
-        out.push(e(format!("{p}.post_attention_layernorm.weight"), vec![h], false)); // scale H
+        out.push(e(
+            format!("{p}.post_attention_layernorm.weight"),
+            vec![h],
+            false,
+        )); // scale H
         out.push(e(format!("{p}.mlp.gate_proj.weight"), vec![i, h], false)); //     H ─▶ I
         out.push(e(format!("{p}.mlp.up_proj.weight"), vec![i, h], false)); //       H ─▶ I
         out.push(e(format!("{p}.mlp.down_proj.weight"), vec![h, i], false)); //     I ─▶ H
@@ -128,7 +144,11 @@ pub fn expected_tensors(cfg: &Config) -> Vec<Expected> {
     out.push(e("model.norm.weight".into(), vec![h], false)); // scale H
     // lm_head: H ─▶ V logits. Required if untied; optional if tied — a tied file may
     // omit it OR ship a redundant byte-identical copy of embed_tokens (learning 10 §3).
-    out.push(e("lm_head.weight".into(), vec![v, h], cfg.tie_word_embeddings));
+    out.push(e(
+        "lm_head.weight".into(),
+        vec![v, h],
+        cfg.tie_word_embeddings,
+    ));
 
     out
 }
@@ -164,7 +184,10 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
                 if t.shape != e.shape {
                     // Name the dims — this is the [2048,1024]-vs-[1024,1024] class of
                     // bug we built M1 to catch (learning 05).
-                    problems.push(format!("{}: shape {:?}, expected {:?}", e.name, t.shape, e.shape));
+                    problems.push(format!(
+                        "{}: shape {:?}, expected {:?}",
+                        e.name, t.shape, e.shape
+                    ));
                 }
             }
             None if !e.optional => {
@@ -178,7 +201,10 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
     //    can't fully account for is exactly what this check exists to surface.
     for t in st.tensors() {
         if !expected_names.contains(t.name.as_str()) {
-            problems.push(format!("{}: unexpected tensor {:?} not implied by the config", t.name, t.shape));
+            problems.push(format!(
+                "{}: unexpected tensor {:?} not implied by the config",
+                t.name, t.shape
+            ));
         }
     }
 
@@ -190,7 +216,10 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
     let mut logical_params = stored_params;
 
     if cfg.tie_word_embeddings
-        && let (Some(head), Some(embed)) = (st.tensor("lm_head.weight"), st.tensor("model.embed_tokens.weight"))
+        && let (Some(head), Some(embed)) = (
+            st.tensor("lm_head.weight"),
+            st.tensor("model.embed_tokens.weight"),
+        )
     {
         if st.bytes(head) == st.bytes(embed) {
             logical_params -= head.num_elements();
@@ -208,7 +237,9 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
         }
     }
 
-    let embed_params = st.tensor("model.embed_tokens.weight").map_or(0, |t| t.num_elements());
+    let embed_params = st
+        .tensor("model.embed_tokens.weight")
+        .map_or(0, |t| t.num_elements());
 
     CrossCheck {
         expected_count: expected_present,
@@ -271,16 +302,38 @@ fn arrow_for(full_name: &str, shape: &[usize]) -> String {
 pub fn render_legend(cfg: &Config) -> String {
     let mut s = String::new();
     s.push_str("── dimensions (from config.json) ───────────────────────────────────────────\n");
-    let row = |sym: &str, name: &str, val: usize, note: &str| format!("  {sym:<3}{name:<22}{val:>7}   {note}\n");
+    let row = |sym: &str, name: &str, val: usize, note: &str| {
+        format!("  {sym:<3}{name:<22}{val:>7}   {note}\n")
+    };
     s.push_str(&row("V", "vocab_size", cfg.vocab_size, "distinct tokens"));
-    s.push_str(&row("H", "hidden_size", cfg.hidden_size, "residual-stream width (the bus)"));
-    s.push_str(&row("L", "num_hidden_layers", cfg.num_hidden_layers, "transformer blocks"));
-    s.push_str(&row("d", "head_dim", cfg.head_dim, "width of one attention head"));
+    s.push_str(&row(
+        "H",
+        "hidden_size",
+        cfg.hidden_size,
+        "residual-stream width (the bus)",
+    ));
+    s.push_str(&row(
+        "L",
+        "num_hidden_layers",
+        cfg.num_hidden_layers,
+        "transformer blocks",
+    ));
+    s.push_str(&row(
+        "d",
+        "head_dim",
+        cfg.head_dim,
+        "width of one attention head",
+    ));
     s.push_str(&row(
         "",
         "num_attention_heads",
         cfg.num_attention_heads,
-        &format!("query heads → q width = {}·{} = {}", cfg.num_attention_heads, cfg.head_dim, cfg.q_width()),
+        &format!(
+            "query heads → q width = {}·{} = {}",
+            cfg.num_attention_heads,
+            cfg.head_dim,
+            cfg.q_width()
+        ),
     ));
     s.push_str(&row(
         "",
@@ -294,7 +347,12 @@ pub fn render_legend(cfg: &Config) -> String {
             cfg.gqa_group()
         ),
     ));
-    s.push_str(&row("I", "intermediate_size", cfg.intermediate_size, "FFN inner width"));
+    s.push_str(&row(
+        "I",
+        "intermediate_size",
+        cfg.intermediate_size,
+        "FFN inner width",
+    ));
     s.push_str("  weights are stored [out, in]; read a row as   in ──▶ out   (y = x·Wᵀ)\n");
     s
 }
@@ -309,7 +367,10 @@ pub fn render_legend(cfg: &Config) -> String {
 pub fn render_table(cfg: &Config, st: &SafeTensors) -> String {
     let mut s = String::new();
     s.push_str("── tensors ─────────────────────────────────────────────────────────────────\n");
-    s.push_str(&format!("  {:<40}{:<6}{:<16}{:>15}   {}\n", "TENSOR", "DTYPE", "SHAPE", "PARAMS", "in ──▶ out"));
+    s.push_str(&format!(
+        "  {:<40}{:<6}{:<16}{:>15}   {}\n",
+        "TENSOR", "DTYPE", "SHAPE", "PARAMS", "in ──▶ out"
+    ));
 
     // Look a tensor up by its full name and format one aligned row. `display` is the
     // (possibly shortened) name shown; absent tensors are marked, not skipped.
@@ -328,19 +389,29 @@ pub fn render_table(cfg: &Config, st: &SafeTensors) -> String {
     };
 
     s.push_str("  global\n");
-    s.push_str(&row("model.embed_tokens.weight", "model.embed_tokens.weight"));
+    s.push_str(&row(
+        "model.embed_tokens.weight",
+        "model.embed_tokens.weight",
+    ));
 
     // One representative block; the other L−1 are identical, so we label rather than
     // dump 28 copies. Suffixes are shown; the real names carry the `model.layers.0.`
     // prefix (which is what we look up).
-    s.push_str(&format!("  each block  × {}   (shown: layer 0)\n", cfg.num_hidden_layers));
+    s.push_str(&format!(
+        "  each block  × {}   (shown: layer 0)\n",
+        cfg.num_hidden_layers
+    ));
     for suffix in BLOCK_SUFFIXES {
         s.push_str(&row(suffix, &format!("model.layers.0.{suffix}")));
     }
 
     s.push_str("  final\n");
     s.push_str(&row("model.norm.weight", "model.norm.weight"));
-    let head_display = if cfg.tie_word_embeddings { "lm_head.weight   (tied)" } else { "lm_head.weight" };
+    let head_display = if cfg.tie_word_embeddings {
+        "lm_head.weight   (tied)"
+    } else {
+        "lm_head.weight"
+    };
     s.push_str(&row(head_display, "lm_head.weight"));
     s
 }
@@ -352,7 +423,10 @@ pub fn render_verdict(xc: &CrossCheck) -> String {
     let mut s = String::new();
     s.push_str("── verdict ─────────────────────────────────────────────────────────────────\n");
     if xc.ok() {
-        s.push_str(&format!("  ✓ all {} expected tensors present, shapes match the config\n", xc.expected_count));
+        s.push_str(&format!(
+            "  ✓ all {} expected tensors present, shapes match the config\n",
+            xc.expected_count
+        ));
     } else {
         s.push_str(&format!(
             "  ✗ {} problem(s)   (expected {}, found {} in file):\n",
@@ -367,10 +441,17 @@ pub fn render_verdict(xc: &CrossCheck) -> String {
     for n in &xc.notes {
         s.push_str(&format!("  note: {n}\n"));
     }
-    s.push_str(&format!("  params: {} stored · {} logical (the \"0.6B\")\n", commafy(xc.stored_params), commafy(xc.logical_params)));
+    s.push_str(&format!(
+        "  params: {} stored · {} logical (the \"0.6B\")\n",
+        commafy(xc.stored_params),
+        commafy(xc.logical_params)
+    ));
     if xc.logical_params > 0 {
         let share = xc.embed_params as f64 / xc.logical_params as f64 * 100.0;
-        s.push_str(&format!("  embeddings: {} = {share:.1}% of logical\n", commafy(xc.embed_params)));
+        s.push_str(&format!(
+            "  embeddings: {} = {share:.1}% of logical\n",
+            commafy(xc.embed_params)
+        ));
     }
     s
 }
@@ -456,7 +537,9 @@ mod tests {
     }
 
     fn find<'a>(want: &'a [Expected], name: &str) -> &'a Expected {
-        want.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("missing expected tensor {name}"))
+        want.iter()
+            .find(|e| e.name == name)
+            .unwrap_or_else(|| panic!("missing expected tensor {name}"))
     }
 
     #[test]
@@ -484,7 +567,10 @@ mod tests {
         let want = expected_tensors(&mini_cfg());
 
         // Exactly 11 tensors carry each layer's prefix.
-        let layer1: Vec<_> = want.iter().filter(|e| e.name.starts_with("model.layers.1.")).collect();
+        let layer1: Vec<_> = want
+            .iter()
+            .filter(|e| e.name.starts_with("model.layers.1."))
+            .collect();
         assert_eq!(layer1.len(), 11);
 
         // The GQA asymmetry is visible in the shapes: q wider than k/v (16 vs 8),
@@ -515,7 +601,10 @@ mod tests {
         cfg.tie_word_embeddings = false;
         let want = expected_tensors(&cfg);
         let head = find(&want, "lm_head.weight");
-        assert!(!head.optional, "untied lm_head is real, distinct weights → required");
+        assert!(
+            !head.optional,
+            "untied lm_head is real, distinct weights → required"
+        );
     }
 
     #[test]
@@ -525,7 +614,11 @@ mod tests {
         names.sort_unstable();
         let count = names.len();
         names.dedup();
-        assert_eq!(names.len(), count, "expected_tensors emitted a duplicate name");
+        assert_eq!(
+            names.len(),
+            count,
+            "expected_tensors emitted a duplicate name"
+        );
     }
 
     #[test]
@@ -554,7 +647,10 @@ mod tests {
     /// `lm_head` and `embed_tokens` are byte-identical (the redundant-copy case). Tests
     /// mutate the returned Vec to inject a specific defect.
     fn rows_for(cfg: &Config) -> Vec<Row> {
-        expected_tensors(cfg).iter().map(|e| (e.name.clone(), e.shape.clone(), 0u8)).collect()
+        expected_tensors(cfg)
+            .iter()
+            .map(|e| (e.name.clone(), e.shape.clone(), 0u8))
+            .collect()
     }
 
     /// Write a valid `[u64 LE header len][JSON header][blob]` safetensors file at
@@ -568,7 +664,9 @@ mod tests {
             let start = blob.len();
             blob.resize(start + bytes, *fill);
             let end = blob.len();
-            entries.push(format!(r#""{name}":{{"dtype":"BF16","shape":{shape:?},"data_offsets":[{start},{end}]}}"#));
+            entries.push(format!(
+                r#""{name}":{{"dtype":"BF16","shape":{shape:?},"data_offsets":[{start},{end}]}}"#
+            ));
         }
         let header = format!("{{{}}}", entries.join(","));
         let mut f = std::fs::File::create(path).unwrap();
@@ -600,7 +698,11 @@ mod tests {
         let st = load_model("clean", &rows_for(&cfg));
         let xc = cross_check(&cfg, &st);
 
-        assert!(xc.ok(), "clean model should pass; problems: {:?}", xc.problems);
+        assert!(
+            xc.ok(),
+            "clean model should pass; problems: {:?}",
+            xc.problems
+        );
         assert!(xc.problems.is_empty());
         assert_eq!(xc.expected_count, 25);
         assert_eq!(xc.found_count, 25);
@@ -608,8 +710,16 @@ mod tests {
         // The redundant tied lm_head is a *note*, not a failure, and it's deduped:
         // stored counts the V·H table twice, logical once.
         assert_eq!(xc.notes.len(), 1);
-        assert!(xc.notes[0].contains("redundant"), "note was: {}", xc.notes[0]);
-        assert_eq!(xc.stored_params - xc.logical_params, 100 * 8, "one V·H table deduped");
+        assert!(
+            xc.notes[0].contains("redundant"),
+            "note was: {}",
+            xc.notes[0]
+        );
+        assert_eq!(
+            xc.stored_params - xc.logical_params,
+            100 * 8,
+            "one V·H table deduped"
+        );
     }
 
     #[test]
@@ -627,7 +737,9 @@ mod tests {
 
         assert!(!xc.ok());
         assert!(
-            xc.problems.iter().any(|p| p.contains("q_proj") && p.contains("[8, 8]") && p.contains("[16, 8]")),
+            xc.problems
+                .iter()
+                .any(|p| p.contains("q_proj") && p.contains("[8, 8]") && p.contains("[16, 8]")),
             "problems: {:?}",
             xc.problems
         );
@@ -643,7 +755,9 @@ mod tests {
 
         assert!(!xc.ok());
         assert!(
-            xc.problems.iter().any(|p| p.contains("down_proj") && p.contains("missing")),
+            xc.problems
+                .iter()
+                .any(|p| p.contains("down_proj") && p.contains("missing")),
             "problems: {:?}",
             xc.problems
         );
@@ -653,13 +767,19 @@ mod tests {
     fn unexpected_extra_tensor_is_a_problem() {
         let cfg = mini_cfg();
         let mut rows = rows_for(&cfg);
-        rows.push(("model.layers.0.self_attn.rotary_emb.inv_freq".into(), vec![2], 0));
+        rows.push((
+            "model.layers.0.self_attn.rotary_emb.inv_freq".into(),
+            vec![2],
+            0,
+        ));
         let st = load_model("extra", &rows);
         let xc = cross_check(&cfg, &st);
 
         assert!(!xc.ok());
         assert!(
-            xc.problems.iter().any(|p| p.contains("rotary_emb") && p.contains("unexpected")),
+            xc.problems
+                .iter()
+                .any(|p| p.contains("rotary_emb") && p.contains("unexpected")),
             "problems: {:?}",
             xc.problems
         );
@@ -673,9 +793,19 @@ mod tests {
         let st = load_model("omitted", &rows);
         let xc = cross_check(&cfg, &st);
 
-        assert!(xc.ok(), "omitting a tied lm_head is legal; problems: {:?}", xc.problems);
-        assert!(xc.notes.is_empty(), "nothing to note when there's no duplicate");
-        assert_eq!(xc.stored_params, xc.logical_params, "no dedup when nothing is duplicated");
+        assert!(
+            xc.ok(),
+            "omitting a tied lm_head is legal; problems: {:?}",
+            xc.problems
+        );
+        assert!(
+            xc.notes.is_empty(),
+            "nothing to note when there's no duplicate"
+        );
+        assert_eq!(
+            xc.stored_params, xc.logical_params,
+            "no dedup when nothing is duplicated"
+        );
         assert_eq!(xc.found_count, 24);
         assert_eq!(xc.expected_count, 24);
     }
@@ -694,8 +824,15 @@ mod tests {
         let xc = cross_check(&cfg, &st);
 
         assert!(xc.ok(), "a differing tied head is a note, not a failure");
-        assert!(xc.notes.iter().any(|n| n.contains("NOT byte-identical")), "notes: {:?}", xc.notes);
-        assert_eq!(xc.stored_params, xc.logical_params, "differing bytes → count both, no dedup");
+        assert!(
+            xc.notes.iter().any(|n| n.contains("NOT byte-identical")),
+            "notes: {:?}",
+            xc.notes
+        );
+        assert_eq!(
+            xc.stored_params, xc.logical_params,
+            "differing bytes → count both, no dedup"
+        );
     }
 
     #[test]
@@ -712,7 +849,11 @@ mod tests {
         let st = SafeTensors::load(&weights).expect("real weights load");
         let xc = cross_check(&cfg, &st);
 
-        assert!(xc.ok(), "real Qwen3-0.6B should cross-check clean; problems: {:?}", xc.problems);
+        assert!(
+            xc.ok(),
+            "real Qwen3-0.6B should cross-check clean; problems: {:?}",
+            xc.problems
+        );
         assert_eq!(xc.found_count, 311);
         assert_eq!(xc.expected_count, 311);
         assert_eq!(xc.stored_params, 751_632_384, "751M physically stored");
@@ -735,9 +876,15 @@ mod tests {
     #[test]
     fn arrow_for_reads_shapes_as_in_to_out() {
         // A projection is stored [out, in]; the arrow reverses it.
-        assert_eq!(arrow_for("model.layers.0.self_attn.q_proj.weight", &[2048, 1024]), "1024 ──▶ 2048");
+        assert_eq!(
+            arrow_for("model.layers.0.self_attn.q_proj.weight", &[2048, 1024]),
+            "1024 ──▶ 2048"
+        );
         // A 1-D norm is a scale vector.
-        assert_eq!(arrow_for("model.layers.0.input_layernorm.weight", &[1024]), "scale 1024");
+        assert_eq!(
+            arrow_for("model.layers.0.input_layernorm.weight", &[1024]),
+            "scale 1024"
+        );
         // The embedding is a gather, not a matmul.
         assert!(arrow_for("model.embed_tokens.weight", &[151936, 1024]).contains("gather"));
     }
@@ -808,7 +955,10 @@ mod tests {
         write_model_file(&dir.join("model.safetensors"), &rows_for(&cfg));
 
         let clean = run(dir.to_str().unwrap()).expect("inspect runs end to end");
-        assert!(clean, "a well-formed synthetic model should cross-check clean");
+        assert!(
+            clean,
+            "a well-formed synthetic model should cross-check clean"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -827,8 +977,12 @@ mod tests {
         std::fs::write(dir.join("config.json"), MINI_JSON).unwrap();
         write_model_file(&dir.join("model.safetensors"), &rows);
 
-        let clean = run(dir.to_str().unwrap()).expect("inspect runs even when the model is malformed");
-        assert!(!clean, "a shape mismatch must make run() report not-clean (→ exit 1)");
+        let clean =
+            run(dir.to_str().unwrap()).expect("inspect runs even when the model is malformed");
+        assert!(
+            !clean,
+            "a shape mismatch must make run() report not-clean (→ exit 1)"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

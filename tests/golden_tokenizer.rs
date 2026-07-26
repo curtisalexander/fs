@@ -45,7 +45,9 @@ fn reproduces_official_ids_on_golden_cases() {
         // 1. encode matches the official IDs.
         let got_ids = tok.encode(text).expect("encode");
         if got_ids != want_ids {
-            failures.push(format!("encode({text:?})\n   got  {got_ids:?}\n   want {want_ids:?}"));
+            failures.push(format!(
+                "encode({text:?})\n   got  {got_ids:?}\n   want {want_ids:?}"
+            ));
             continue; // decode checks below assume encode is correct
         }
         // 2. decode of the official IDs reproduces the official text.

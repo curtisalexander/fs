@@ -25,18 +25,18 @@
 /// Symbols in comments match `docs/learnings/05-reading-shapes.md`.
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub vocab_size: usize,          // V — number of distinct tokens (151936)
-    pub hidden_size: usize,         // H — residual-stream width (1024)
-    pub num_hidden_layers: usize,   // L — transformer blocks (28)
-    pub head_dim: usize,            // d — width of one attention head (128)
-    pub num_attention_heads: usize, // query heads (16) → q width = heads · d
-    pub num_key_value_heads: usize, // kv heads    (8)  → kv width = kv_heads · d
-    pub intermediate_size: usize,   // I — FFN inner width (3072)
-    pub rms_norm_eps: f32,          // RMSNorm epsilon (1e-6) — used at M2
-    pub rope_theta: f64,            // RoPE base frequency (1e6) — used at M2
-    pub tie_word_embeddings: bool,  // true → no separate lm_head; reuse embeddings
-    pub bos_token_id: u32,          // begin-of-sequence id — used at M3
-    pub eos_token_id: u32,          // end-of-sequence id   — used at M3
+    pub vocab_size: usize,              // V — number of distinct tokens (151936)
+    pub hidden_size: usize,             // H — residual-stream width (1024)
+    pub num_hidden_layers: usize,       // L — transformer blocks (28)
+    pub head_dim: usize,                // d — width of one attention head (128)
+    pub num_attention_heads: usize,     // query heads (16) → q width = heads · d
+    pub num_key_value_heads: usize,     // kv heads    (8)  → kv width = kv_heads · d
+    pub intermediate_size: usize,       // I — FFN inner width (3072)
+    pub rms_norm_eps: f32,              // RMSNorm epsilon (1e-6) — used at M2
+    pub rope_theta: f64,                // RoPE base frequency (1e6) — used at M2
+    pub tie_word_embeddings: bool,      // mathematically tied; file may still ship a copy
+    pub bos_token_id: u32,              // begin-of-sequence id — used at M3
+    pub eos_token_id: u32,              // end-of-sequence id   — used at M3
     pub max_position_embeddings: usize, // context length (40960)
 }
 
@@ -55,13 +55,17 @@ impl Config {
         let path = format!("{model_dir}/config.json");
 
         // 1. Read the file to a string. A missing/unreadable file is NotFound.
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| ConfigError::NotFound { path: path.clone(), message: e.to_string() })?;
+        let text = std::fs::read_to_string(&path).map_err(|e| ConfigError::NotFound {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
 
         // 2. Parse the JSON once. serde_json owns "are these bytes JSON?" (not the
         //    lesson — see the M0 dependency note); we pull fields out by hand below.
-        let v: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| ConfigError::Parse { path: path.clone(), message: e.to_string() })?;
+        let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| ConfigError::Parse {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
 
         // 3. One typed extractor per JSON scalar kind. Each names the field it
         //    couldn't satisfy: absent → MissingField, wrong type/range → BadField.
@@ -71,27 +75,42 @@ impl Config {
                 .ok_or(ConfigError::MissingField { field })?
                 .as_u64()
                 .map(|n| n as usize)
-                .ok_or_else(|| ConfigError::BadField { field, message: "expected a non-negative integer".into() })
+                .ok_or_else(|| ConfigError::BadField {
+                    field,
+                    message: "expected a non-negative integer".into(),
+                })
         };
         let token_id = |field: &'static str| -> Result<u32, ConfigError> {
             let n = v
                 .get(field)
                 .ok_or(ConfigError::MissingField { field })?
                 .as_u64()
-                .ok_or_else(|| ConfigError::BadField { field, message: "expected a non-negative integer".into() })?;
-            u32::try_from(n).map_err(|_| ConfigError::BadField { field, message: format!("{n} does not fit in u32") })
+                .ok_or_else(|| ConfigError::BadField {
+                    field,
+                    message: "expected a non-negative integer".into(),
+                })?;
+            u32::try_from(n).map_err(|_| ConfigError::BadField {
+                field,
+                message: format!("{n} does not fit in u32"),
+            })
         };
         let float = |field: &'static str| -> Result<f64, ConfigError> {
             v.get(field)
                 .ok_or(ConfigError::MissingField { field })?
                 .as_f64()
-                .ok_or_else(|| ConfigError::BadField { field, message: "expected a number".into() })
+                .ok_or_else(|| ConfigError::BadField {
+                    field,
+                    message: "expected a number".into(),
+                })
         };
         let boolean = |field: &'static str| -> Result<bool, ConfigError> {
             v.get(field)
                 .ok_or(ConfigError::MissingField { field })?
                 .as_bool()
-                .ok_or_else(|| ConfigError::BadField { field, message: "expected a boolean".into() })
+                .ok_or_else(|| ConfigError::BadField {
+                    field,
+                    message: "expected a boolean".into(),
+                })
         };
 
         Ok(Config {
@@ -148,7 +167,10 @@ pub enum ConfigError {
     /// A required key was absent.
     MissingField { field: &'static str },
     /// A key was present but the wrong JSON type / range.
-    BadField { field: &'static str, message: String },
+    BadField {
+        field: &'static str,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -222,7 +244,12 @@ mod tests {
         let json = MINI.replace("\"hidden_size\": 8,", "");
         let dir = write_config("missing", &json);
         let err = Config::load(dir.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, ConfigError::MissingField { field: "hidden_size" }));
+        assert!(matches!(
+            err,
+            ConfigError::MissingField {
+                field: "hidden_size"
+            }
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -232,7 +259,13 @@ mod tests {
         let json = MINI.replace("\"hidden_size\": 8", "\"hidden_size\": \"lots\"");
         let dir = write_config("badtype", &json);
         let err = Config::load(dir.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, ConfigError::BadField { field: "hidden_size", .. }));
+        assert!(matches!(
+            err,
+            ConfigError::BadField {
+                field: "hidden_size",
+                ..
+            }
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 

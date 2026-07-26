@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 08 — Row-major layout &amp; strides — Failed Star</title>
+<meta name="description" content="How shape, row-major layout, and strides turn tensor indices into flat offsets — from embedding gather through matmul and [out,in] linear weights.">
+
+<!-- Sync ledger: this page is a distillation of the markdown below.
+     See tools/sync-check.sh — it flags when these sources drift from this page. -->
+<meta name="fs-distills" content="docs/learnings/08-row-major-strides.md">
+
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="../index.html" aria-label="Failed Star home">
+      <img src="../assets/logo/star.svg" width="30" height="30" alt="">
+      Failed Star <span class="tld">/ fs</span>
+    </a>
+    <nav class="nav">
+      <a href="../index.html">Home</a>
+      <a href="../prerequisites.html">Prerequisites</a>
+      <a href="../diagrams.html">Diagrams</a>
+      <a href="../milestones.html">Milestones</a>
+      <a href="./index.html" class="current" aria-current="page">Learnings</a>
+      <a href="https://github.com/curtisalexander/fs">GitHub</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light and dark theme" title="Toggle light / dark">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<section id="intro">
+  <div class="container prose">
+    <p class="eyebrow">Learning 08 · from a shape to a byte offset</p>
+    <h2>Row-major layout &amp; strides</h2>
+    <p class="note-meta"><b>Context:</b> M2, embedding gather + matmul ·
+      <b>Status:</b> <span class="status-live">living</span></p>
+    <p class="lead"><a href="./05-reading-shapes.html">Learning 05</a> taught us to read
+      <code>[out,in]</code>: a shape says what the axes <em>mean</em>. It does not say where
+      element <code>(row,col)</code> lives. M2 forces that second question as soon as it reads
+      a weight.</p>
+    <div class="callout">
+      <strong>A shape names the axes. A layout orders their elements. Strides turn an index
+      on those axes into one flat offset.</strong>
+    </div>
+    <p>Failed Star chooses one deliberately plain representation while learning the math:
+      contiguous row-major <code>f32</code>, always. No views, hidden transpose, or variable
+      strides. A later reorder must be an explicit copy whose cost and payoff we can measure.</p>
+    <div class="cites">
+      <span class="chip chip--book">📖 Inference Engineering (Kiely) · §2.1 (p.42)</span>
+      <span class="chip chip--ds4">🔧 ds4 · get_rows.metal + dense.metal</span>
+      <span class="chip chip--rasch">🧭 NumPy · ndarray memory layout</span>
+    </div>
+  </div>
+</section>
+
+<section id="shape-layout">
+  <div class="container">
+    <p class="eyebrow">One grid, an ordered buffer</p>
+    <h2>Shape is not layout</h2>
+    <p class="prose">A shape <code>[3,4]</code> gives three rows and four columns. The same
+      logical grid could be stored row-first as <code>a,b,c,d,e,…</code> or column-first as
+      <code>a,e,i,b,…</code>. Safetensors is C-contiguous, and our <code>Matrix</code> keeps
+      that row-major order after widening to <code>f32</code>.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 800 405" role="img"
+           aria-label="A logical matrix of shape 3 by 4 maps row by row into a twelve-element flat buffer. The row stride is 4 and column stride is 1. Cell j at row 2 column 1 maps to flat index 9.">
+        <style>
+          .gcell { fill: var(--ds4); fill-opacity: .11; stroke: var(--ds4); stroke-width: 1; }
+          .grow { fill: var(--ember); fill-opacity: .13; stroke: var(--ember); stroke-width: 1; }
+          .hit { fill: var(--book); fill-opacity: .28; stroke: var(--book); stroke-width: 2; }
+          .lab { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+          .dim { font-family: var(--mono); font-size: 11px; fill: var(--text-mute); }
+          .head { font-family: var(--serif); font-size: 15px; fill: var(--text); }
+          .arrow { stroke: var(--text-mute); stroke-width: 1.5; fill: none; }
+          .brace { stroke: var(--ember); stroke-width: 1.5; fill: none; }
+        </style>
+        <defs>
+          <marker id="a08grid" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+
+        <text x="190" y="28" text-anchor="middle" class="head">logical grid · shape [R=3,C=4]</text>
+        <text x="70" y="70" class="dim">row 0</text><text x="70" y="130" class="dim">row 1</text><text x="70" y="190" class="dim">row 2</text>
+        <text x="140" y="50" text-anchor="middle" class="dim">col 0</text><text x="200" y="50" text-anchor="middle" class="dim">col 1</text>
+        <text x="260" y="50" text-anchor="middle" class="dim">col 2</text><text x="320" y="50" text-anchor="middle" class="dim">col 3</text>
+        <rect class="grow" x="110" y="55" width="60" height="50"/><rect class="grow" x="170" y="55" width="60" height="50"/><rect class="grow" x="230" y="55" width="60" height="50"/><rect class="grow" x="290" y="55" width="60" height="50"/>
+        <rect class="gcell" x="110" y="115" width="60" height="50"/><rect class="gcell" x="170" y="115" width="60" height="50"/><rect class="gcell" x="230" y="115" width="60" height="50"/><rect class="gcell" x="290" y="115" width="60" height="50"/>
+        <rect class="gcell" x="110" y="175" width="60" height="50"/><rect class="hit" x="170" y="175" width="60" height="50"/><rect class="gcell" x="230" y="175" width="60" height="50"/><rect class="gcell" x="290" y="175" width="60" height="50"/>
+        <text x="140" y="86" text-anchor="middle" class="lab">a</text><text x="200" y="86" text-anchor="middle" class="lab">b</text><text x="260" y="86" text-anchor="middle" class="lab">c</text><text x="320" y="86" text-anchor="middle" class="lab">d</text>
+        <text x="140" y="146" text-anchor="middle" class="lab">e</text><text x="200" y="146" text-anchor="middle" class="lab">f</text><text x="260" y="146" text-anchor="middle" class="lab">g</text><text x="320" y="146" text-anchor="middle" class="lab">h</text>
+        <text x="140" y="206" text-anchor="middle" class="lab">i</text><text x="200" y="206" text-anchor="middle" class="lab">j</text><text x="260" y="206" text-anchor="middle" class="lab">k</text><text x="320" y="206" text-anchor="middle" class="lab">l</text>
+
+        <path class="arrow" d="M380 140 C440 140 440 270 500 270" marker-end="url(#a08grid)"/>
+        <text x="430" y="124" text-anchor="middle" class="dim">store rows</text>
+        <text x="430" y="140" text-anchor="middle" class="dim">left → right</text>
+
+        <text x="400" y="264" text-anchor="middle" class="head">flat row-major buffer</text>
+        <text x="95" y="295" class="dim">index</text>
+        <text x="95" y="340" class="dim">value</text>
+        <rect class="grow" x="130" y="305" width="45" height="50"/><rect class="grow" x="175" y="305" width="45" height="50"/><rect class="grow" x="220" y="305" width="45" height="50"/><rect class="grow" x="265" y="305" width="45" height="50"/>
+        <rect class="gcell" x="310" y="305" width="45" height="50"/><rect class="gcell" x="355" y="305" width="45" height="50"/><rect class="gcell" x="400" y="305" width="45" height="50"/><rect class="gcell" x="445" y="305" width="45" height="50"/>
+        <rect class="gcell" x="490" y="305" width="45" height="50"/><rect class="hit" x="535" y="305" width="45" height="50"/><rect class="gcell" x="580" y="305" width="45" height="50"/><rect class="gcell" x="625" y="305" width="45" height="50"/>
+        <text x="152" y="298" text-anchor="middle" class="dim">0</text><text x="197" y="298" text-anchor="middle" class="dim">1</text><text x="242" y="298" text-anchor="middle" class="dim">2</text><text x="287" y="298" text-anchor="middle" class="dim">3</text>
+        <text x="332" y="298" text-anchor="middle" class="dim">4</text><text x="377" y="298" text-anchor="middle" class="dim">5</text><text x="422" y="298" text-anchor="middle" class="dim">6</text><text x="467" y="298" text-anchor="middle" class="dim">7</text>
+        <text x="512" y="298" text-anchor="middle" class="dim">8</text><text x="557" y="298" text-anchor="middle" class="dim">9</text><text x="602" y="298" text-anchor="middle" class="dim">10</text><text x="647" y="298" text-anchor="middle" class="dim">11</text>
+        <text x="152" y="336" text-anchor="middle" class="lab">a</text><text x="197" y="336" text-anchor="middle" class="lab">b</text><text x="242" y="336" text-anchor="middle" class="lab">c</text><text x="287" y="336" text-anchor="middle" class="lab">d</text>
+        <text x="332" y="336" text-anchor="middle" class="lab">e</text><text x="377" y="336" text-anchor="middle" class="lab">f</text><text x="422" y="336" text-anchor="middle" class="lab">g</text><text x="467" y="336" text-anchor="middle" class="lab">h</text>
+        <text x="512" y="336" text-anchor="middle" class="lab">i</text><text x="557" y="336" text-anchor="middle" class="lab">j</text><text x="602" y="336" text-anchor="middle" class="lab">k</text><text x="647" y="336" text-anchor="middle" class="lab">l</text>
+        <path class="brace" d="M130 365 v8 h180 v-8 M310 365 v8 h180 v-8 M490 365 v8 h180 v-8"/>
+        <text x="220" y="387" text-anchor="middle" class="dim">row 0 · 4 contiguous</text><text x="400" y="387" text-anchor="middle" class="dim">row 1</text><text x="580" y="387" text-anchor="middle" class="dim">row 2</text>
+      </svg>
+      <figcaption>Last axis contiguous: move one column → one element; move one row → four.
+        Element strides are <code>[C,1] = [4,1]</code>, so <code>(2,1) = 2·4+1 = 9</code>.</figcaption>
+    </figure>
+
+    <pre><code>flat_index(row, col) = row · C + col
+
+Matrix::row(r) = data[r · cols .. (r + 1) · cols]</code></pre>
+    <p class="prose">That slice exposes the invariant: one logical row is one uninterrupted
+      run of <code>cols</code> values.</p>
+  </div>
+</section>
+
+<section id="strides">
+  <div class="container">
+    <p class="eyebrow">The indexing multipliers</p>
+    <h2>Strides turn coordinates into offsets</h2>
+    <p class="prose">A stride is the number of <em>elements</em> skipped when one axis advances.
+      For row-major <code>[R,C]</code>, strides are <code>[C,1]</code>. In N dimensions, the
+      last stride is 1 and every stride to its left is the product of dimensions to its right:</p>
+    <pre><code>offset(i₀,…,iₙ) = i₀·stride₀ + … + iₙ·strideₙ</code></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>view</th><th>shape</th><th>strides</th><th>rows contiguous?</th></tr></thead>
+        <tbody>
+          <tr><td>row-major original</td><td><code>[R,C]</code></td><td><code>[C,1]</code></td><td>yes</td></tr>
+          <tr><td>transpose view</td><td><code>[C,R]</code></td><td><code>[1,C]</code></td><td>no</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">A general tensor library can make transpose “free” by swapping shape and
+      strides while leaving the bytes alone. Failed Star's M2 <code>Matrix</code> intentionally
+      cannot: it always means <code>len = rows·cols</code> and stride <code>(cols,1)</code>.</p>
+  </div>
+</section>
+
+<section id="embedding">
+  <div class="container">
+    <p class="eyebrow">A real offset</p>
+    <h2>Token 785 in <code>embed[V,H]</code></h2>
+    <p class="prose">The safetensors reader gives a tensor-relative range. Add its start to
+      the row-major element offset, then multiply by
+      <a href="./07-bf16.html">bf16's two bytes</a>:</p>
+    <pre><code>file_byte(row,col)
+  = data_start + tensor.start + (row·C + col)·2</code></pre>
+    <p class="prose">For the real embedding table <code>[V,H] = [151936,1024]</code>, the oracle
+      prompt begins with token id <code>785</code> (“The”). Relative to the tensor start:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>location</th><th>calculation</th><th>byte offset / range</th></tr></thead>
+        <tbody>
+          <tr><td>first <code>(785,0)</code></td><td><code>(785·1024+0)·2</code></td><td><code>1,607,680</code></td></tr>
+          <tr><td>last <code>(785,1023)</code></td><td><code>(785·1024+1023)·2</code></td><td><code>1,609,726</code></td></tr>
+          <tr><td>whole row</td><td>1,024 adjacent bf16 values</td><td><code>[1,607,680, 1,609,728)</code> = 2,048 bytes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">M2 widens that row into 1,024 adjacent f32 values: 4,096 owned bytes.
+      Width changes; row-major order does not. This also explains M1's validation
+      <code>tensor bytes = R·C·dtype.size()</code>: if it fails, no stride formula can make
+      header and blob agree.</p>
+
+    <h3>Gather copies one contiguous row</h3>
+    <p class="prose">Embedding is not multiplication. For <code>embed[V,H]</code> and
+      <code>ids[seq]</code>, gather selects each id's H-wide row, preserving token order:</p>
+    <pre><code>ids [2,0,2] · embed [V=4,H=3] → output [seq=3,H=3]
+row 2 [20,21,22]                 [20,21,22]
+row 0 [ 0, 1, 2]                 [ 0, 1, 2]
+row 2 [20,21,22]                 [20,21,22]</code></pre>
+    <p class="prose"><code>embedding_gather</code> asserts every id is below V, finds the row
+      start, and <code>copy_from_slice</code>s one contiguous width — the CPU counterpart of
+      <code>ds4</code>'s <code>get_rows</code>.</p>
+  </div>
+</section>
+
+<section id="matmul">
+  <div class="container">
+    <p class="eyebrow">Reading the triple loop</p>
+    <h2>Matmul: three indices, three flat offsets</h2>
+    <p class="prose">For <code>A[M,K] · B[K,N] → C[M,N]</code>, one output cell is:</p>
+    <pre><code>C[i,j] = Σₖ A[i,k] · B[k,j]
+
+A[i,k] → A.data[i·K + k]
+B[k,j] → B.data[k·N + j]
+C[i,j] → C.data[i·N + j]</code></pre>
+    <p class="prose">M2's naive <code>(i,j,k)</code> loop makes the access pattern visible:
+      A advances contiguously while B jumps by N. Tiling, SIMD, transposition, and Metal can
+      improve that later; first we need a baseline we understand and can measure.</p>
+  </div>
+</section>
+
+<section id="linear">
+  <div class="container">
+    <p class="eyebrow">The shape convention pays off</p>
+    <h2><code>[out,in]</code> means two contiguous rows</h2>
+    <p class="prose">Neural-network weights are stored <code>W[out,in]</code>, while the equation
+      is <code>Y = X·Wᵀ</code>. The superscript T is mathematical bookkeeping: for output
+      feature <code>o</code>, <code>linear</code> dots input row <code>X[t,:]</code> directly
+      with weight row <code>W[o,:]</code>. Both are contiguous and exactly <code>in</code> wide.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 800 350" role="img"
+           aria-label="One input row X at token t with shape in and one weight row W at output o from a matrix stored out by in feed one dot product producing Y at t,o. Both source rows are contiguous. W transpose appears only in the mathematical equation; no physical transpose occurs.">
+        <style>
+          .xcell { fill: var(--ds4); fill-opacity: .15; stroke: var(--ds4); stroke-width: 1; }
+          .wcell { fill: var(--book); fill-opacity: .16; stroke: var(--book); stroke-width: 1; }
+          .out { fill: var(--ember); fill-opacity: .18; stroke: var(--ember); stroke-width: 1.5; }
+          .line { stroke: var(--text-mute); stroke-width: 1.4; fill: none; }
+          .head { font-family: var(--serif); font-size: 15px; fill: var(--text); }
+          .lab { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+          .dim { font-family: var(--mono); font-size: 10.5px; fill: var(--text-mute); }
+          .math { font-family: var(--mono); font-size: 13px; fill: var(--ember); }
+        </style>
+        <defs>
+          <marker id="a08dot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--text-mute)"/>
+          </marker>
+        </defs>
+        <text x="205" y="28" text-anchor="middle" class="head">X[seq,in] · row t</text>
+        <text x="595" y="28" text-anchor="middle" class="head">W[out,in] · row o</text>
+        <text x="205" y="48" text-anchor="middle" class="dim">one contiguous in-wide row</text>
+        <text x="595" y="48" text-anchor="middle" class="dim">one contiguous in-wide row</text>
+        <rect class="xcell" x="65" y="65" width="70" height="50"/><rect class="xcell" x="135" y="65" width="70" height="50"/><rect class="xcell" x="205" y="65" width="70" height="50"/><rect class="xcell" x="275" y="65" width="70" height="50"/>
+        <text x="100" y="96" text-anchor="middle" class="lab">x₀</text><text x="170" y="96" text-anchor="middle" class="lab">x₁</text><text x="240" y="96" text-anchor="middle" class="lab">…</text><text x="310" y="96" text-anchor="middle" class="lab">xᵢₙ₋₁</text>
+        <rect class="wcell" x="455" y="65" width="70" height="50"/><rect class="wcell" x="525" y="65" width="70" height="50"/><rect class="wcell" x="595" y="65" width="70" height="50"/><rect class="wcell" x="665" y="65" width="70" height="50"/>
+        <text x="490" y="96" text-anchor="middle" class="lab">w₀</text><text x="560" y="96" text-anchor="middle" class="lab">w₁</text><text x="630" y="96" text-anchor="middle" class="lab">…</text><text x="700" y="96" text-anchor="middle" class="lab">wᵢₙ₋₁</text>
+        <path class="line" d="M205 125 C205 180 330 180 360 218" marker-end="url(#a08dot)"/>
+        <path class="line" d="M595 125 C595 180 470 180 440 218" marker-end="url(#a08dot)"/>
+        <circle class="out" cx="400" cy="235" r="50"/>
+        <text x="400" y="230" text-anchor="middle" class="head">dot product</text>
+        <text x="400" y="250" text-anchor="middle" class="dim">multiply + sum</text>
+        <path class="line" d="M400 285 V310" marker-end="url(#a08dot)"/>
+        <text x="400" y="333" text-anchor="middle" class="math">Y[t,o] = Σᵢ X[t,i]·W[o,i]</text>
+        <text x="400" y="145" text-anchor="middle" class="math">Y = X·Wᵀ</text>
+        <text x="400" y="162" text-anchor="middle" class="dim">Wᵀ is mathematical — no physical transpose</text>
+      </svg>
+      <figcaption>One stored weight row contains every incoming weight for one output feature.
+        The equation reads <code>Wᵀ</code>; memory is never physically transposed.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="neighbors">
+  <div class="container">
+    <p class="eyebrow">Numerical neighbors</p>
+    <h2>Rows stay explicit elsewhere, too</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>helper</th><th>layout consequence</th></tr></thead>
+        <tbody>
+          <tr><td>RMSNorm</td><td>normalizes each complete <code>[seq,H]</code> row; never mixes tokens</td></tr>
+          <tr><td>SiLU</td><td>element-wise, so layout cannot change the result</td></tr>
+          <tr><td>RoPE</td><td>rotates halves of each d-wide q/k row; one contiguous sin/cos row per position, oracle-locked at Qwen's final position 40959</td></tr>
+          <tr><td>top-k</td><td>reads the flat <code>[V]</code> logits row; original flat index remains token id</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">Every helper asserts its shape contract before indexing. Known-answer
+      tests check both numbers and loud failures; RoPE also checks that rotation preserves
+      vector length.</p>
+    <div class="callout prose">
+      <strong>Mental model.</strong> Shape tells you what an index means. Strides tell you how
+      far it moves. Row-major <code>[R,C]</code> means strides <code>[C,1]</code>, so
+      <code>(r,c) = r·C+c</code>. The model-specific payoff: <code>[out,in]</code> stores one
+      output neuron's weights as one contiguous row, so <code>x·Wᵀ</code> needs no physical
+      transpose.
+    </div>
+  </div>
+</section>
+
+<section id="links">
+  <div class="container prose">
+    <div class="crosslinks">
+      <h3>Cross-links</h3>
+      <ul>
+        <li><a href="./05-reading-shapes.html">Learning 05 · reading shapes</a> — the
+          <code>[out,in]</code> convention this note turns into offsets and row dots.</li>
+        <li><a href="./07-bf16.html">Learning 07 · bf16</a> — the two-byte source values those
+          offsets step over before M2 widens them.</li>
+        <li><a href="./01-safetensors-vs-gguf.html">Learning 01 · safetensors vs GGUF</a> —
+          the tensor blob and C-contiguous premise.</li>
+        <li><a href="./10-transformer-block-anatomy.html">Learning 10 · transformer block anatomy</a>
+          — where linear, RMSNorm, SiLU, and RoPE fit.</li>
+        <li>🔧 <code>src/tensor.rs</code> · <code>src/forward.rs</code> · <code>ds4</code>
+          <code>metal/get_rows.metal</code> and <code>metal/dense.metal</code> · Full note:
+          <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/08-row-major-strides.md"><code>docs/learnings/08-row-major-strides.md</code></a>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <p><strong>Failed Star</strong> — learn LLM inference by building it. This is a
+      <a href="./index.html">learning note</a>; the milestone it feeds is
+      <strong>M2 — forward pass → logits</strong>.</p>
+    <p class="meta">This page distills <code>docs/learnings/08-row-major-strides.md</code>.
+      © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
+  </div>
+</footer>
+
+<script src="../assets/js/app.js"></script>
+</body>
+</html>

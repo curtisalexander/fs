@@ -4,9 +4,48 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ current — **design + scaffold + layered fp32 oracle landed**; numeric bodies next). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. `src/tensor.rs` + `src/forward.rs` scaffolded with real signatures + docstrings + `todo!()` bodies (M0/M1 cadence), wired end to end, **build + clippy clean, 53 pass / 3 ignored**. **M1 — Load the weights: ☑ done** — flipped across all four places (PLAN legend, this line, README status+checklist, `docs/index.html` progress strip = 2/7, 29%). `fs inspect <dir>` runs end to end and is verified against the real Qwen3-0.6B: loads `config.json` + `model.safetensors`, derives the expected tensor set from the config, cross-checks it against the file, prints a shape-first legend + grouped `× L` table + verdict. Full M1 stack: `Mmap::open` → `SafeTensors::load` → `Config::load` → `expected_tensors` → `cross_check` → `render_*` → `run`; milestone writeup [`docs/m1-weights.md`](docs/m1-weights.md) (+ HTML), `learnings/10` graduated to HTML. M0 — Tokenizer ✅ complete (14/14 golden).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed**; attention next). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, and deterministic top-k; **67 unit + 2 golden pass / 0 ignored, clippy clean**. Remaining scaffold starts at `attention_one_head`, then GQA/SwiGLU/block assembly, weight materialization, full forward, and CLI. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` remains verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **M1 pages published:** `docs/m1-weights.html` (milestone) + `docs/learnings/10-transformer-block-anatomy.html` (with theme-aware SVGs: provenance chain, safetensors layout, pre-norm block), carded in `learnings/index.html`, "Milestones" nav swept to M1, registered in `tools/sync-ledger.tsv` (**in sync**; new rows stamped at `2015112`, re-stamp with `sync-check.sh --update` on the landing commit). **Learnings graduated: `01–07`, `09`, `10`** (`08` stub awaits M2). **New Milestones index** [`docs/milestones.html`](docs/milestones.html) is the "Milestones" nav destination site-wide (distills `PLAN.md`); **milestone docs renamed `mN-`** so filename = milestone ID (`m0-tokenizer`, `m1-weights`; next is `m2-forward-pass`). **`05.html` reconciled with `05.md`:** fixed the stale "no separate `lm_head.weight`" claim (→ the "tied is about the math, not the file" note + 311/751M/596M), added the abridged `fs inspect` output block, corrected the lm_head table row (`[V,H]`, redundant), and updated cross-links (→ `10` + `../m1-weights.html`).
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–10` are now all graduated:** Learning 08 row-major/strides landed in Markdown + rich HTML with two theme-aware SVGs (logical grid→flat buffer; contiguous X/W row dot), carded in `learnings/index.html`; Learning 07's stale point-of-use widening claim was reconciled with M2's owned f32 working-copy design. New rows need `tools/sync-check.sh --update` on the landing commit. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+
+---
+
+## Session 18 — 2026-07-26 — M2 numerical foundation + Learning 08
+
+**Why:** turn the scaffold's independent numerical primitives into readable,
+tested code before attention composes them, and teach the memory-layout arithmetic
+at the exact moment the implementation first indexes matrices.
+
+**Numerical foundation:** `Matrix::matmul` is the literal shape-asserted `(i,j,k)`
+triple loop (`A[i·K+k]`, `B[k·N+j]`, `C[i·N+j]`); `linear` dots contiguous
+`X[t,:]` and stored `[out,in]` `W[o,:]` rows, so `Wᵀ` stays mathematical — no
+physical transpose. Added embedding row gather with vocabulary bounds, RMSNorm for
+one vector + every matrix row, SiLU, Qwen/HF rotate-half RoPE tables/application,
+and deterministic top-k (descending score, token-id tie break). Every helper has
+explicit shape/range assertions and toy known-answer/invariant tests; removed all
+three scaffold ignores and the now-unneeded `tensor` dead-code allowance.
+
+**Learning 08 graduated:** replaced the stub with a full worked note from shape →
+layout → strides → flat index → bf16 byte offset, grounded in real token 785's row
+of `embed[151936,1024]`; then gather, matmul offsets, and the `[out,in]` linear
+payoff. Hand-distilled to `08-row-major-strides.html`, replaced the stub index card
+(Learnings now ten), and added two SVGs. Rendered all four figure/theme combinations
+with `diagram-review`; both figures pass light + dark with no overlap, clipping,
+poke-through, or contrast defects. Reconciled Learning 07 Markdown + HTML: M1 stays
+raw/mmap; M2 intentionally pays for owned f32 tensors for clarity + fp32 parity.
+
+**Verify:** **67 unit + 2 golden pass, 0 ignored**; RoPE matches locked Torch fp32
+values at Qwen's real final context position 40959; `cargo clippy --all-targets`
+clean; HTML parses and all internal links resolve; `git diff --check` clean. The
+sync ledger row is registered at the existing baseline and must be re-stamped with
+`tools/sync-check.sh --update` on the landing commit. `cargo fmt` also normalized
+the existing Rust sources repo-wide; the user approved retaining that formatting
+churn (no behavior changes outside `tensor.rs` / `forward.rs`, plus one corrected
+`tie_word_embeddings` comment in `config.rs`).
+
+**Next:** implement `attention_one_head` on a two-token causal toy, then compose
+QK-norm + RoPE + GQA in `multi_head_attention`; compare the assembled block 0 to
+the golden checkpoint before proceeding through all 28 layers.
 
 ---
 

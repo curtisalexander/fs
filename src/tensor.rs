@@ -19,8 +19,6 @@
 //! touching memory (the standing shape-clarity invariant), so a mis-shaped matmul
 //! panics *at the call* with the offending dims — not as silent garbage in logits.
 
-#![allow(dead_code)] // scaffold: bodies land helper-by-helper (M0/M1 cadence).
-
 use std::fmt;
 
 /// A row-major matrix of `f32`, `data.len() == rows * cols`.
@@ -39,24 +37,44 @@ pub struct Matrix {
 impl Matrix {
     /// A `rows × cols` matrix of zeros.
     pub fn zeros(rows: usize, cols: usize) -> Matrix {
-        Matrix { data: vec![0.0; rows * cols], rows, cols }
+        Matrix {
+            data: vec![0.0; rows * cols],
+            rows,
+            cols,
+        }
     }
 
     /// Wrap an existing flat buffer, asserting it is exactly `rows * cols` long.
     /// The assert is the whole point — it turns a shape bug into a loud panic at
     /// construction rather than an out-of-bounds read later.
     pub fn from_vec(rows: usize, cols: usize, data: Vec<f32>) -> Matrix {
-        assert_eq!(data.len(), rows * cols, "Matrix::from_vec: {rows}×{cols} needs {} elems, got {}", rows * cols, data.len());
+        assert_eq!(
+            data.len(),
+            rows * cols,
+            "Matrix::from_vec: {rows}×{cols} needs {} elems, got {}",
+            rows * cols,
+            data.len()
+        );
         Matrix { data, rows, cols }
     }
 
     /// Row `r` as a contiguous slice of `cols` elements.
     pub fn row(&self, r: usize) -> &[f32] {
+        assert!(
+            r < self.rows,
+            "Matrix::row: row {r} outside {} rows",
+            self.rows
+        );
         &self.data[r * self.cols..(r + 1) * self.cols]
     }
 
     /// Row `r` as a mutable contiguous slice (for in-place ops like RoPE).
     pub fn row_mut(&mut self, r: usize) -> &mut [f32] {
+        assert!(
+            r < self.rows,
+            "Matrix::row_mut: row {r} outside {} rows",
+            self.rows
+        );
         &mut self.data[r * self.cols..(r + 1) * self.cols]
     }
 
@@ -70,9 +88,23 @@ impl Matrix {
     ///
     /// [`linear`]: Matrix::linear
     pub fn matmul(&self, other: &Matrix) -> Matrix {
-        assert_eq!(self.cols, other.rows, "matmul: inner dims must match: [{}×{}] · [{}×{}]", self.rows, self.cols, other.rows, other.cols);
-        // for i in 0..m: for j in 0..n: out[i,j] = Σ_k self[i,k]·other[k,j]
-        todo!("naive triple loop over (m, n, k), accumulating in an f32 sum")
+        assert_eq!(
+            self.cols, other.rows,
+            "matmul: inner dims must match: [{}×{}] · [{}×{}]",
+            self.rows, self.cols, other.rows, other.cols
+        );
+        let mut out = Matrix::zeros(self.rows, other.cols);
+        for i in 0..self.rows {
+            for j in 0..other.cols {
+                let mut sum = 0.0;
+                for k in 0..self.cols {
+                    // Row-major offsets: A[i,k] = i·K+k; B[k,j] = k·N+j.
+                    sum += self.data[i * self.cols + k] * other.data[k * other.cols + j];
+                }
+                out.data[i * other.cols + j] = sum;
+            }
+        }
+        out
     }
 
     /// A Linear layer's forward: `y = x · Wᵀ`, where `W` is stored `[out, in]`.
@@ -85,9 +117,24 @@ impl Matrix {
     ///
     /// (No bias: Qwen3's projections are bias-free.)
     pub fn linear(&self, w: &Matrix) -> Matrix {
-        assert_eq!(self.cols, w.cols, "linear: x cols ({}) must equal W in-dim ({}); W is [out={}, in={}]", self.cols, w.cols, w.rows, w.cols);
-        // out is [seq, out]; out[t,o] = dot(self.row(t), w.row(o))
-        todo!("for each token row t, for each output neuron o: dot the two contiguous rows")
+        assert_eq!(
+            self.cols, w.cols,
+            "linear: x cols ({}) must equal W in-dim ({}); W is [out={}, in={}]",
+            self.cols, w.cols, w.rows, w.cols
+        );
+        let mut out = Matrix::zeros(self.rows, w.rows);
+        for t in 0..self.rows {
+            for o in 0..w.rows {
+                let x_row = self.row(t);
+                let w_row = w.row(o);
+                let mut sum = 0.0;
+                for i in 0..self.cols {
+                    sum += x_row[i] * w_row[i];
+                }
+                out.data[t * w.rows + o] = sum;
+            }
+        }
+        out
     }
 }
 
@@ -117,7 +164,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "scaffold: matmul is todo!()"]
     fn matmul_small_known_answer() {
         // [1 2 3; 4 5 6] · [7 8; 9 10; 11 12] = [58 64; 139 154]
         let a = Matrix::from_vec(2, 3, vec![1., 2., 3., 4., 5., 6.]);
@@ -127,12 +173,31 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "scaffold: linear is todo!()"]
     fn linear_is_matmul_against_transposed_weight() {
-        // x[1×2] · Wᵀ where W=[out=2, in=2] = [[1,2],[3,4]]
-        // y[0] = dot([1,1],[1,2]) = 3 ; y[1] = dot([1,1],[3,4]) = 7
-        let x = Matrix::from_vec(1, 2, vec![1., 1.]);
-        let w = Matrix::from_vec(2, 2, vec![1., 2., 3., 4.]);
-        assert_eq!(x.linear(&w).data, vec![3., 7.]);
+        // x[seq=2,in=3] · Wᵀ where W=[out=2,in=3]. Two rows and a non-square
+        // weight make both the output shape and flat row indexing observable.
+        let x = Matrix::from_vec(2, 3, vec![1., 2., 3., 4., 5., 6.]);
+        let w = Matrix::from_vec(2, 3, vec![1., 0., -1., 2., 1., 0.]);
+        let y = x.linear(&w);
+        assert_eq!((y.rows, y.cols), (2, 2));
+        assert_eq!(y.data, vec![-2., 4., -2., 13.]);
+    }
+
+    #[test]
+    #[should_panic(expected = "matmul: inner dims must match")]
+    fn matmul_rejects_mismatched_inner_dims() {
+        Matrix::zeros(2, 3).matmul(&Matrix::zeros(2, 4));
+    }
+
+    #[test]
+    #[should_panic(expected = "linear: x cols")]
+    fn linear_rejects_wrong_input_width() {
+        Matrix::zeros(2, 3).linear(&Matrix::zeros(4, 2));
+    }
+
+    #[test]
+    #[should_panic(expected = "Matrix::row: row 3 outside 3 rows")]
+    fn zero_width_matrix_still_checks_row_bounds() {
+        Matrix::zeros(3, 0).row(3);
     }
 }

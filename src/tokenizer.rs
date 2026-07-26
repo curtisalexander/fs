@@ -176,20 +176,22 @@ impl Tokenizer {
         let path = model_dir.as_ref().join("tokenizer.json");
         let doc = Self::read_json(&path)?;
 
-        let vocab = doc["model"]["vocab"]
-            .as_object()
-            .ok_or_else(|| TokenizerError::BadTokenizer {
-                path: path.clone(),
-                message: "missing `model.vocab` object".into(),
-            })?;
+        let vocab =
+            doc["model"]["vocab"]
+                .as_object()
+                .ok_or_else(|| TokenizerError::BadTokenizer {
+                    path: path.clone(),
+                    message: "missing `model.vocab` object".into(),
+                })?;
         let (token_to_id, id_to_token) = Self::build_vocab(vocab, &path)?;
 
-        let merges = doc["model"]["merges"]
-            .as_array()
-            .ok_or_else(|| TokenizerError::BadTokenizer {
-                path: path.clone(),
-                message: "missing `model.merges` array".into(),
-            })?;
+        let merges =
+            doc["model"]["merges"]
+                .as_array()
+                .ok_or_else(|| TokenizerError::BadTokenizer {
+                    path: path.clone(),
+                    message: "missing `model.merges` array".into(),
+                })?;
         let merge_ranks = Self::build_merges(merges, &path)?;
 
         // added_tokens is optional; absent → no special tokens.
@@ -234,8 +236,10 @@ impl Tokenizer {
                     for chunk in self.pretokenize(run)? {
                         // Stage 2: remap each raw byte to its byte-level-unicode
                         // char, so the chunk is in the vocab/merge alphabet.
-                        let mapped: String =
-                            chunk.bytes().map(|b| self.byte_encoder[b as usize]).collect();
+                        let mapped: String = chunk
+                            .bytes()
+                            .map(|b| self.byte_encoder[b as usize])
+                            .collect();
                         // Stages 3+4: merge within this chunk, then look up.
                         ids.extend(self.bpe(&mapped)?);
                     }
@@ -390,7 +394,9 @@ impl Tokenizer {
                 .min_by_key(|(rank, _)| *rank);
 
             // No adjacent pair is a known merge → the chunk is fully tokenized.
-            let Some((_, (left, right))) = best else { break };
+            let Some((_, (left, right))) = best else {
+                break;
+            };
             symbols = Self::merge_pair(symbols, &left, &right);
         }
 
@@ -618,8 +624,7 @@ mod tests {
     /// `tokenizer.json` carries, used to drive the unit tests below. (`load`
     /// reads the live pattern from the file; this is just a fixed reference so
     /// the `pretokenize` tests don't need the model assets.)
-    const PRETOKENIZE_PATTERN: &str =
-        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+    const PRETOKENIZE_PATTERN: &str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
 
     /// Build a Tokenizer from tiny in-memory tables, for exercising `bpe` /
     /// `pretokenize` / special-token carving without loading the real assets.
@@ -663,7 +668,11 @@ mod tests {
     fn byte_encoder_is_a_bijection() {
         let enc = Tokenizer::build_byte_encoder();
         let distinct: HashSet<char> = enc.iter().copied().collect();
-        assert_eq!(distinct.len(), 256, "every byte must map to a distinct char");
+        assert_eq!(
+            distinct.len(),
+            256,
+            "every byte must map to a distinct char"
+        );
     }
 
     #[test]
@@ -674,7 +683,10 @@ mod tests {
         assert_eq!(fwd["a"], 0);
         assert_eq!(fwd["Ġc"], 2);
         // reverse map is indexed by id, so order == id order
-        assert_eq!(rev, vec!["a".to_string(), "b".to_string(), "Ġc".to_string()]);
+        assert_eq!(
+            rev,
+            vec!["a".to_string(), "b".to_string(), "Ġc".to_string()]
+        );
     }
 
     #[test]
@@ -726,7 +738,10 @@ mod tests {
                 ]
             }
         });
-        assert_eq!(Tokenizer::extract_pattern(&doc, Path::new("x")).unwrap(), "ABC");
+        assert_eq!(
+            Tokenizer::extract_pattern(&doc, Path::new("x")).unwrap(),
+            "ABC"
+        );
     }
 
     #[test]
@@ -791,7 +806,10 @@ mod tests {
         let tok = mini_tokenizer(&[], &[]);
         // Ground truth from the official tokenizer (with Ġ mapped back to space).
         assert_eq!(tok.pretokenize("hello world").unwrap(), ["hello", " world"]);
-        assert_eq!(tok.pretokenize(" hello world").unwrap(), [" hello", " world"]);
+        assert_eq!(
+            tok.pretokenize(" hello world").unwrap(),
+            [" hello", " world"]
+        );
         assert_eq!(
             tok.pretokenize("The capital of France is").unwrap(),
             ["The", " capital", " of", " France", " is"]
