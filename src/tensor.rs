@@ -29,16 +29,19 @@ use std::fmt;
 /// cache-friendly access pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Matrix {
-    pub data: Vec<f32>,
-    pub rows: usize,
-    pub cols: usize,
+    pub(crate) data: Vec<f32>,
+    pub(crate) rows: usize,
+    pub(crate) cols: usize,
 }
 
 impl Matrix {
     /// A `rows × cols` matrix of zeros.
     pub fn zeros(rows: usize, cols: usize) -> Matrix {
+        let len = rows
+            .checked_mul(cols)
+            .expect("Matrix::zeros: rows × cols overflow");
         Matrix {
-            data: vec![0.0; rows * cols],
+            data: vec![0.0; len],
             rows,
             cols,
         }
@@ -48,14 +51,29 @@ impl Matrix {
     /// The assert is the whole point — it turns a shape bug into a loud panic at
     /// construction rather than an out-of-bounds read later.
     pub fn from_vec(rows: usize, cols: usize, data: Vec<f32>) -> Matrix {
+        let len = rows
+            .checked_mul(cols)
+            .expect("Matrix::from_vec: rows × cols overflow");
         assert_eq!(
             data.len(),
-            rows * cols,
+            len,
             "Matrix::from_vec: {rows}×{cols} needs {} elems, got {}",
-            rows * cols,
+            len,
             data.len()
         );
         Matrix { data, rows, cols }
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    pub fn as_slice(&self) -> &[f32] {
+        &self.data
     }
 
     /// Row `r` as a contiguous slice of `cols` elements.
@@ -161,6 +179,12 @@ mod tests {
     #[should_panic]
     fn from_vec_wrong_len_panics() {
         Matrix::from_vec(2, 3, vec![1.0, 2.0]); // needs 6
+    }
+
+    #[test]
+    #[should_panic(expected = "rows × cols overflow")]
+    fn matrix_dimensions_cannot_overflow() {
+        Matrix::zeros(usize::MAX, 2);
     }
 
     #[test]

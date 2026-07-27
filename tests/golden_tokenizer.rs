@@ -4,27 +4,18 @@
 //! (`scripts/gen_golden.py`). This is the milestone's "done" gate.
 //!
 //! Needs the real assets in `models/qwen3-0.6b/` (git-ignored; fetch with
-//! `uv run --directory scripts fetch_model.py`). If they're absent we skip with
-//! a notice instead of failing, so `cargo test` stays green on a fresh checkout.
-
-use std::path::Path;
+//! `uv run --directory scripts --frozen fetch_model.py`). These tests are
+//! explicitly ignored in the default model-free suite; run them on the target Mac
+//! after fetching assets with `cargo test --locked --test golden_tokenizer -- --ignored`.
 
 use fs::tokenizer::Tokenizer;
 
 const MODEL_DIR: &str = "models/qwen3-0.6b";
 const GOLDEN: &str = include_str!("golden/tokenizer.json");
 
-fn model_present() -> bool {
-    Path::new(MODEL_DIR).join("tokenizer.json").exists()
-}
-
 #[test]
+#[ignore = "requires fetched Qwen tokenizer assets; run on the target Mac"]
 fn reproduces_official_ids_on_golden_cases() {
-    if !model_present() {
-        eprintln!("SKIP: {MODEL_DIR} not found — run `uv run --directory scripts fetch_model.py`");
-        return;
-    }
-
     let tok = Tokenizer::load(MODEL_DIR).expect("load tokenizer from model dir");
     let doc: serde_json::Value = serde_json::from_str(GOLDEN).expect("parse golden json");
     let cases = doc["cases"].as_array().expect("golden 'cases' array");
@@ -76,11 +67,8 @@ fn reproduces_official_ids_on_golden_cases() {
 /// Special tokens come from `tokenizer.json`'s `added_tokens` (ids 151643+).
 /// They match verbatim, bypass BPE, and decode back to their literal text.
 #[test]
+#[ignore = "requires fetched Qwen tokenizer assets; run on the target Mac"]
 fn handles_special_tokens() {
-    if !model_present() {
-        eprintln!("SKIP: {MODEL_DIR} not found — run `uv run --directory scripts fetch_model.py`");
-        return;
-    }
     let tok = Tokenizer::load(MODEL_DIR).expect("load tokenizer");
 
     // Known ids from Qwen3-0.6B's added_tokens.

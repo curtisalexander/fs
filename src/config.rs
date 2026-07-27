@@ -71,14 +71,18 @@ impl Config {
         //    couldn't satisfy: absent → MissingField, wrong type/range → BadField.
         //    No silent defaults — a model we don't understand fails loudly here.
         let uint = |field: &'static str| -> Result<usize, ConfigError> {
-            v.get(field)
+            let n = v
+                .get(field)
                 .ok_or(ConfigError::MissingField { field })?
                 .as_u64()
-                .map(|n| n as usize)
                 .ok_or_else(|| ConfigError::BadField {
                     field,
                     message: "expected a non-negative integer".into(),
-                })
+                })?;
+            usize::try_from(n).map_err(|_| ConfigError::BadField {
+                field,
+                message: format!("{n} does not fit in usize"),
+            })
         };
         let token_id = |field: &'static str| -> Result<u32, ConfigError> {
             let n = v
@@ -113,7 +117,7 @@ impl Config {
                 })
         };
 
-        Ok(Config {
+        let config = Config {
             vocab_size: uint("vocab_size")?,
             hidden_size: uint("hidden_size")?,
             num_hidden_layers: uint("num_hidden_layers")?,
@@ -129,7 +133,82 @@ impl Config {
             bos_token_id: token_id("bos_token_id")?,
             eos_token_id: token_id("eos_token_id")?,
             max_position_embeddings: uint("max_position_embeddings")?,
-        })
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Validate relationships which JSON scalar parsing alone cannot express.
+    fn validate(&self) -> Result<(), ConfigError> {
+        for (field, value) in [
+            ("vocab_size", self.vocab_size),
+            ("hidden_size", self.hidden_size),
+            ("num_hidden_layers", self.num_hidden_layers),
+            ("num_attention_heads", self.num_attention_heads),
+            ("num_key_value_heads", self.num_key_value_heads),
+            ("intermediate_size", self.intermediate_size),
+            ("max_position_embeddings", self.max_position_embeddings),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::BadField {
+                    field,
+                    message: "must be positive".into(),
+                });
+            }
+        }
+        if self.head_dim == 0 || !self.head_dim.is_multiple_of(2) {
+            return Err(ConfigError::BadField {
+                field: "head_dim",
+                message: "must be positive and even (RoPE rotates pairs)".into(),
+            });
+        }
+        if !self
+            .num_attention_heads
+            .is_multiple_of(self.num_key_value_heads)
+        {
+            return Err(ConfigError::BadField {
+                field: "num_attention_heads",
+                message: "must be exactly divisible by num_key_value_heads".into(),
+            });
+        }
+        self.num_attention_heads
+            .checked_mul(self.head_dim)
+            .ok_or_else(|| ConfigError::BadField {
+                field: "num_attention_heads",
+                message: "query width overflows usize".into(),
+            })?;
+        self.num_key_value_heads
+            .checked_mul(self.head_dim)
+            .ok_or_else(|| ConfigError::BadField {
+                field: "num_key_value_heads",
+                message: "key/value width overflows usize".into(),
+            })?;
+
+        let rope_theta_f32 = self.rope_theta as f32;
+        if !rope_theta_f32.is_finite() || rope_theta_f32 <= 0.0 {
+            return Err(ConfigError::BadField {
+                field: "rope_theta",
+                message: "must be finite and positive at f32 compute width".into(),
+            });
+        }
+        if !self.rms_norm_eps.is_finite() || self.rms_norm_eps <= 0.0 {
+            return Err(ConfigError::BadField {
+                field: "rms_norm_eps",
+                message: "must be finite and positive".into(),
+            });
+        }
+        for (field, id) in [
+            ("bos_token_id", self.bos_token_id),
+            ("eos_token_id", self.eos_token_id),
+        ] {
+            if id as u64 >= self.vocab_size as u64 {
+                return Err(ConfigError::BadField {
+                    field,
+                    message: format!("{id} is outside vocab_size {}", self.vocab_size),
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Query-projection output width: `num_attention_heads · head_dim`.
@@ -284,14 +363,70 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_real_qwen_config_if_present() {
-        // Reality check against the shipped config.json — skipped on a fresh
-        // checkout (assets git-ignored), like the golden tokenizer test.
-        let dir = "models/qwen3-0.6b";
-        if !std::path::Path::new(dir).join("config.json").exists() {
-            eprintln!("skipping: {dir}/config.json not fetched");
-            return;
+    fn rejects_invalid_shape_relationships() {
+        for (tag, from, to, field) in [
+            (
+                "zero",
+                "\"hidden_size\": 8",
+                "\"hidden_size\": 0",
+                "hidden_size",
+            ),
+            ("odd-head", "\"head_dim\": 4", "\"head_dim\": 3", "head_dim"),
+            (
+                "gqa",
+                "\"num_attention_heads\": 4",
+                "\"num_attention_heads\": 3",
+                "num_attention_heads",
+            ),
+            (
+                "q-width-overflow",
+                "\"num_attention_heads\": 4",
+                "\"num_attention_heads\": 18446744073709551614",
+                "num_attention_heads",
+            ),
+        ] {
+            let dir = write_config(tag, &MINI.replace(from, to));
+            let err = Config::load(dir.to_str().unwrap()).unwrap_err();
+            assert!(matches!(err, ConfigError::BadField { field: got, .. } if got == field));
+            std::fs::remove_dir_all(dir).ok();
         }
+    }
+
+    #[test]
+    fn rejects_invalid_compute_scalars_and_token_ids() {
+        for (tag, from, to, field) in [
+            (
+                "rope-wide",
+                "\"rope_theta\": 10000",
+                "\"rope_theta\": 1e100",
+                "rope_theta",
+            ),
+            (
+                "eps-zero",
+                "\"rms_norm_eps\": 1e-6",
+                "\"rms_norm_eps\": 0",
+                "rms_norm_eps",
+            ),
+            (
+                "bos-oob",
+                "\"bos_token_id\": 1",
+                "\"bos_token_id\": 100",
+                "bos_token_id",
+            ),
+        ] {
+            let dir = write_config(tag, &MINI.replace(from, to));
+            let err = Config::load(dir.to_str().unwrap()).unwrap_err();
+            assert!(matches!(err, ConfigError::BadField { field: got, .. } if got == field));
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[test]
+    #[ignore = "requires fetched Qwen config; run on the target Mac"]
+    fn reads_the_real_qwen_config_if_present() {
+        // Reality check against the shipped config.json. Explicitly ignored in the
+        // default model-free suite; the target-Mac verification command enables it.
+        let dir = "models/qwen3-0.6b";
         let cfg = Config::load(dir).expect("real Qwen config loads");
 
         // The seven named dims + the M2/M3 scalars, straight from the model card.

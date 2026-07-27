@@ -185,10 +185,21 @@ everything" into "one token's worth of work."
   *"the KV cache is a first-class disk citizen"* — it streams KV from SSD
   (`ds4_ssd.c`), turning "fits in RAM?" from a yes/no into a speed dial.
 
-### Quantization — store weights in fewer bits · **M5**
+### Metal bring-up — run end to end on the GPU · **M5**
+Bring up a bounded raw Objective-C/Metal FFI surface, then move the complete
+correct CPU path to MSL. The CPU remains the oracle; correctness comes before
+fusion. Metal validation runs on the local development Mac, not in an orb or as a
+promise about standard GitHub runners.
+
+### Metal optimization — profile, then fuse · **M6**
+Profile the working GPU path, optimize measured bottlenecks, and fuse only where
+before/after local-Mac benchmarks justify it.
+
+### Quantization — store weights in fewer bits · **M7 (conditional)**
 Weights are trained in 16-bit but can be stored in 8/4/2-bit with clever scaling,
 shrinking memory and (because decode is bandwidth-bound) *speeding it up*. This is
-how a model fits 64GB at all.
+only core work after M4/M6 benchmarks support an explicit go decision. GGUF is a
+separate optional interoperability choice, not part of that decision.
 
 - 📖 **§5.1 "Quantization" (p.120)** → §5.1.1 number formats (p.121), §5.1.2
   approaches (p.125), §5.1.3 measuring quality impact (p.128).
@@ -196,7 +207,7 @@ how a model fits 64GB at all.
   calibration); uses IQ2_XXS for routed experts, Q2_K for down-projections;
   dequant kernels in the `metal/` shaders. Number-format note: this is **RUNG 1**.
 
-### Metal kernels — do the math on the GPU, tightly · **M6**
+### Metal kernels — do the math on the GPU, tightly · **M5 → M6**
 Every tensor op (RUNG 3) becomes a **kernel** (RUNG 2): a small MSL program the
 GPU runs over thousands of threads. We submit them via the Objective-C Metal API
 **through raw FFI** (no wrapper crate) so the buffer/command/pipeline machinery
@@ -209,7 +220,7 @@ round-tripping memory) is a key speed lever.
 - 🔧 `ds4`: the entire `reference/ds4/metal/` directory (19 shaders) + the Metal
   host backend `ds4_metal.m` (~26k lines — this is most of how `ds4` runs on a Mac).
 
-### …and the advanced stuff (later) · **M7+**
+### …and post-core experiments (optional, not promised)
 **Speculative decoding** (§5.2, p.129 — a small draft model proposes tokens a big
 model verifies), **MoE** at scale (§2.2.4), **model parallelism** (§5.4, p.142),
 **DeepSeek-V4's compressed attention** (`ds4`'s `dsv4_hc.metal` / `dsv4_kv.metal`;
@@ -223,11 +234,11 @@ Raschka's MLA notes). These are stretch goals once the core engine breathes.
 |---|---|---|---|
 | Concepts/vocabulary | ✅ everything | — | — (we cite the book) |
 | Tokenizer | mentions | `ds4.c` (hash table) | M0 (Rust) |
-| Forward pass | ✅ the math | `ds4.c` + `metal/*` | M2 (Rust + MSL) |
+| Forward pass | ✅ the math | `ds4.c` + `metal/*` | M2 (CPU Rust) |
 | Sampling | ✅ | `metal/softmax,argsort` | M3 (Rust) |
 | KV cache | ✅ §5.3 | `ds4_kvstore.c`, SSD streaming | M4 (Rust, RAM-only first) |
-| Quantization | ✅ §5.1 | `gguf-tools/`, 2-bit experts | M5 (start 8/4-bit) |
-| Metal kernels | ✅ §4.1 (as CUDA) | `ds4_metal.m` + `metal/*` | M6 (raw FFI + MSL) |
+| Quantization | ✅ §5.1 | `gguf-tools/`, 2-bit experts | M7, only after go/no-go |
+| Metal kernels | ✅ §4.1 (as CUDA) | `ds4_metal.m` + `metal/*` | M5 bring-up; M6 optimize |
 | Multi-backend (CUDA/ROCm) | Ch 3–4 | `ds4_cuda.cu`, `ds4_rocm.cu` | ❌ out of scope (Metal only) |
 | Distributed / server / agent | Ch 7 | `ds4_distributed.c`, `ds4_server.c`, `ds4_agent.c` | ❌ out of scope (for now) |
 
@@ -258,9 +269,10 @@ implement a few pieces by hand.** We apply that *per milestone*:
 
 ## 7. What's next
 
-➡️ **M0 — The Tokenizer.** Text ↔ token IDs in Rust. Self-contained, no GPU, no
-model weights, immediately runnable — the gentlest possible on-ramp, and the first
-and last thing every prompt touches. See [`../PLAN.md`](../PLAN.md).
+➡️ **M2 — Forward pass → logits.** The correct, clear CPU reference remains the
+current milestone; see [`../PLAN.md`](../PLAN.md). The accelerated product target
+is modern Apple Silicon/Metal. CPU execution elsewhere is incidental learning and
+host-check utility, not supported Linux portability.
 
 For the full cross-reference index (book page numbers, every `ds4` file, Raschka
 links), see [`RESOURCES.md`](RESOURCES.md).

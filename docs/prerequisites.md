@@ -43,7 +43,7 @@ and a knowledge-map you can use to find your own gaps.
 | **The transformer, conceptually** | The shape of the thing you're building: tokens → embeddings → attention + feed-forward (×N) → logits. | Jay Alammar, *The Illustrated Transformer*; 3B1B *attention* videos |
 | **Softmax & nonlinearities** | Softmax turns scores into probabilities (used in attention *and* sampling); SiLU/GELU are the FFN's nonlinearity. | book §2.1.2 (p.44) |
 | **Probability / sampling basics** | "A distribution over the next token," temperature, top-k/top-p. | Karpathy, *Let's build GPT* (sampling part) |
-| **Memory layout / mmap / FFI (idea only)** | Why row-major contiguous arrays matter; what "map a file into memory" and "call C/Obj-C from Rust" mean. | learning 01; we go deeper at M1/M6 |
+| **Memory layout / mmap / FFI (idea only)** | Why row-major contiguous arrays matter; what "map a file into memory" and "call C/Obj-C from Rust" mean. | learning 01; we go deeper at M1/M5 |
 
 ## 🔵 What we'll demonstrate (don't pre-study these)
 
@@ -115,15 +115,15 @@ the canonical free reads, and most are ongoing series worth following:
   single free survey of inference optimization; her whole blog is a rigorous series.
 - **kipply (Carol Chen) — "Transformer Inference Arithmetic":**
   <https://kipp.ly/transformer-inference-arithmetic/> — the canonical back-of-the-
-  envelope: why decode is memory-bound and how big the KV cache gets. Primes M4/M6.
+  envelope: why decode is memory-bound and how big the KV cache gets. Primes M4/M6/M7.
 - **EleutherAI — "Transformer Math 101":** <https://blog.eleuther.ai/transformer-math/>
   (+ the [cookbook](https://github.com/EleutherAI/cookbook)) — companion FLOP/memory math.
 - **Horace He — "Making Deep Learning Go Brrrr From First Principles":**
   <https://horace.io/brrr_intro.html> — compute- / memory- / overhead-bound, the
-  mental model behind every kernel choice. Primes M6.
+  mental model behind every kernel choice. Primes M5/M6.
 - **Maarten Grootendorst — "A Visual Guide to Quantization"** (+ his MoE guide):
   <https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-quantization> —
-  50+ visuals on GPTQ/GGUF/BitNet. Primes M5 (and M7 for MoE).
+  50+ visuals on GPTQ/GGUF/BitNet. Primes the M7 decision (and optional MoE work).
 
 **Another practitioner book (free, optional):**
 - **Stas Bekman — "Machine Learning Engineering Open Book":**

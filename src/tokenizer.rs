@@ -42,7 +42,7 @@
 //! Verify (M0 "done"): reproduce `tests/golden/tokenizer.json` exactly, and
 //! round-trip decode(encode(s)) == s.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -78,6 +78,9 @@ pub enum TokenizerError {
     /// Qwen's pre-tokenization regex failed to compile or run.
     Regex(fancy_regex::Error),
 
+    /// The configured regex left bytes unmatched instead of tiling the input.
+    UntiledInput { byte: usize },
+
     /// BPE produced a piece that was not present in the vocabulary.
     UnknownToken(String),
 
@@ -98,6 +101,9 @@ impl fmt::Display for TokenizerError {
                 write!(f, "bad tokenizer file {}: {message}", path.display())
             }
             Self::Regex(source) => write!(f, "tokenizer regex error: {source}"),
+            Self::UntiledInput { byte } => {
+                write!(f, "tokenizer regex left input unmatched at byte {byte}")
+            }
             Self::UnknownToken(token) => write!(f, "token not found in vocab: {token:?}"),
             Self::InvalidTokenId(id) => write!(f, "invalid token id: {id}"),
         }
@@ -110,7 +116,10 @@ impl Error for TokenizerError {
             Self::Io { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
             Self::Regex(source) => Some(source),
-            Self::BadTokenizer { .. } | Self::UnknownToken(_) | Self::InvalidTokenId(_) => None,
+            Self::BadTokenizer { .. }
+            | Self::UntiledInput { .. }
+            | Self::UnknownToken(_)
+            | Self::InvalidTokenId(_) => None,
         }
     }
 }
@@ -196,7 +205,7 @@ impl Tokenizer {
 
         // added_tokens is optional; absent → no special tokens.
         let (special_tokens, special_ids) = match doc["added_tokens"].as_array() {
-            Some(added) => Self::build_special_tokens(added, &path)?,
+            Some(added) => Self::build_special_tokens(added, id_to_token.len(), &path)?,
             None => (HashMap::new(), HashMap::new()),
         };
 
@@ -336,8 +345,17 @@ impl Tokenizer {
         // borrowed slices (no copying). fancy-regex backtracks, so a match can
         // fail mid-scan; that's why each item is a Result we propagate.
         let mut chunks = Vec::new();
+        let mut next_byte = 0;
         for found in self.regex.find_iter(text) {
-            chunks.push(found.map_err(TokenizerError::Regex)?.as_str());
+            let found = found.map_err(TokenizerError::Regex)?;
+            if found.start() != next_byte || found.start() == found.end() {
+                return Err(TokenizerError::UntiledInput { byte: next_byte });
+            }
+            next_byte = found.end();
+            chunks.push(found.as_str());
+        }
+        if next_byte != text.len() {
+            return Err(TokenizerError::UntiledInput { byte: next_byte });
         }
         Ok(chunks)
     }
@@ -488,8 +506,17 @@ impl Tokenizer {
         vocab: &Map<String, Value>,
         path: &Path,
     ) -> Result<(HashMap<String, u32>, Vec<String>)> {
+        let alphabet: HashSet<char> = Self::build_byte_encoder().into_iter().collect();
         let mut token_to_id = HashMap::with_capacity(vocab.len());
         for (token, id) in vocab {
+            if let Some(ch) = token.chars().find(|ch| !alphabet.contains(ch)) {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!(
+                        "vocab token {token:?} contains {ch:?}, outside the GPT-2 byte alphabet"
+                    ),
+                });
+            }
             let id = id
                 .as_u64()
                 .and_then(|n| u32::try_from(n).ok())
@@ -547,7 +574,13 @@ impl Tokenizer {
                     path: path.into(),
                     message: format!("merge #{rank} is not a [left, right] pair: {entry}"),
                 })?;
-            merge_ranks.insert((left.to_string(), right.to_string()), rank as u32);
+            let pair = (left.to_string(), right.to_string());
+            if merge_ranks.insert(pair.clone(), rank as u32).is_some() {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!("merge pair {pair:?} appears more than once"),
+                });
+            }
         }
         Ok(merge_ranks)
     }
@@ -568,6 +601,7 @@ impl Tokenizer {
     /// `added_tokens`. These match verbatim and bypass BPE.
     fn build_special_tokens(
         added: &[Value],
+        vocab_size: usize,
         path: &Path,
     ) -> Result<(HashMap<String, u32>, HashMap<u32, String>)> {
         let mut by_content = HashMap::with_capacity(added.len());
@@ -587,8 +621,34 @@ impl Tokenizer {
                     path: path.into(),
                     message: format!("added token {content:?} has a non-u32 `id`"),
                 })?;
-            by_content.insert(content.to_string(), id);
-            by_id.insert(id, content.to_string());
+            if content.is_empty() {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: "added token content must not be empty".into(),
+                });
+            }
+            if usize::try_from(id).is_ok_and(|id| id < vocab_size) {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!(
+                        "added token {content:?} id {id} collides with ordinary vocab"
+                    ),
+                });
+            }
+            if by_content.insert(content.to_string(), id).is_some() {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!("added token content {content:?} appears more than once"),
+                });
+            }
+            if let Some(previous) = by_id.insert(id, content.to_string()) {
+                return Err(TokenizerError::BadTokenizer {
+                    path: path.into(),
+                    message: format!(
+                        "added token id {id} is shared by {previous:?} and {content:?}"
+                    ),
+                });
+            }
         }
         Ok((by_content, by_id))
     }
@@ -699,6 +759,15 @@ mod tests {
     }
 
     #[test]
+    fn build_vocab_rejects_chars_outside_byte_alphabet() {
+        let vocab = json!({ "🙂": 0 });
+        assert!(matches!(
+            Tokenizer::build_vocab(vocab.as_object().unwrap(), Path::new("x")),
+            Err(TokenizerError::BadTokenizer { .. })
+        ));
+    }
+
+    #[test]
     fn build_merges_ranks_from_zero() {
         // Modern array form, in priority order: rank is the index.
         let merges = json!([["Ġ", "Ġ"], ["i", "n"], ["Ġ", "t"]]);
@@ -725,6 +794,30 @@ mod tests {
             Tokenizer::build_merges(merges.as_array().unwrap(), Path::new("x")),
             Err(TokenizerError::BadTokenizer { .. })
         ));
+    }
+
+    #[test]
+    fn build_merges_rejects_duplicate_pairs() {
+        let merges = json!([["a", "b"], ["a", "b"]]);
+        assert!(matches!(
+            Tokenizer::build_merges(merges.as_array().unwrap(), Path::new("x")),
+            Err(TokenizerError::BadTokenizer { .. })
+        ));
+    }
+
+    #[test]
+    fn special_tokens_must_have_unique_nonempty_content_and_ids() {
+        for added in [
+            json!([{ "content": "", "id": 2 }]),
+            json!([{ "content": "<a>", "id": 2 }, { "content": "<a>", "id": 3 }]),
+            json!([{ "content": "<a>", "id": 2 }, { "content": "<b>", "id": 2 }]),
+            json!([{ "content": "<a>", "id": 1 }]),
+        ] {
+            assert!(matches!(
+                Tokenizer::build_special_tokens(added.as_array().unwrap(), 2, Path::new("x")),
+                Err(TokenizerError::BadTokenizer { .. })
+            ));
+        }
     }
 
     #[test]
@@ -833,6 +926,16 @@ mod tests {
         for s in ["hello world", " leading", "trailing ", "a\n\nb", "café 🚀"] {
             assert_eq!(tok.pretokenize(s).unwrap().concat(), s);
         }
+    }
+
+    #[test]
+    fn pretokenize_rejects_a_regex_that_skips_bytes() {
+        let mut tok = mini_tokenizer(&[], &[]);
+        tok.regex = fancy_regex::Regex::new("[a-z]+").unwrap();
+        assert!(matches!(
+            tok.pretokenize("abc!def"),
+            Err(TokenizerError::UntiledInput { byte: 3 })
+        ));
     }
 
     #[test]

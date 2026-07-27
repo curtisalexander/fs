@@ -67,18 +67,18 @@
     <p class="eyebrow">Where we are</p>
     <h2>Build progress</h2>
     <div class="progress">
-      <div class="progress-bar"><span style="width:29%"></span></div>
-      <p class="progress-caption"><strong>2 / 7</strong> core milestones done ·
+      <div class="progress-bar"><span style="width:25%"></span></div>
+      <p class="progress-caption"><strong>2 / 8</strong> core milestones done ·
         currently <strong class="cur">M2 — forward pass → logits</strong></p>
       <ol class="milestones">
         <li class="ms ms--done"><span class="ms-id">M0</span><span class="ms-name">Tokenizer</span></li>
         <li class="ms ms--done"><span class="ms-id">M1</span><span class="ms-name">Load weights</span></li>
         <li class="ms ms--now"><span class="ms-id">M2</span><span class="ms-name">Forward pass</span></li>
-        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Sampling</span></li>
+        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Generation</span></li>
         <li class="ms"><span class="ms-id">M4</span><span class="ms-name">KV cache</span></li>
-        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Quantization</span></li>
-        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal kernels</span></li>
-        <li class="ms ms--stretch"><span class="ms-id">7+</span><span class="ms-name">Stretch</span></li>
+        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Metal bring-up</span></li>
+        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal optimize</span></li>
+        <li class="ms"><span class="ms-id">M7</span><span class="ms-name">Quantize?</span></li>
       </ol>
       <p class="progress-caption"><a href="./milestones.html">See all milestones, with links to each writeup →</a></p>
     </div>
@@ -174,7 +174,7 @@
         <summary><span class="num">2</span>
           <span><span class="title">Kernels</span><br>
           <span class="blurb">each op as a Metal (MSL) shader, run on the GPU over a command buffer</span></span>
-          <span class="mstone">M6</span></summary>
+          <span class="mstone">M5–M6</span></summary>
         <div class="detail"><p>Each tensor op becomes a small MSL program the GPU runs over
           thousands of threads. We submit them through raw Objective-C FFI — no wrapper
           crate — so nothing is hidden.</p></div>
@@ -184,7 +184,7 @@
         <summary><span class="num">1</span>
           <span><span class="title">Memory &amp; numbers</span><br>
           <span class="blurb">weights in RAM, dtype/quantization, unified memory, buffers, bandwidth</span></span>
-          <span class="mstone">M1 · M5</span></summary>
+          <span class="mstone">M1 · M7?</span></summary>
         <div class="detail"><p>Weights are just numbers laid out in memory. How many bits
           each takes (quantization) decides whether the model fits — and, because decode
           is bandwidth-bound, how fast it runs.</p></div>
@@ -282,13 +282,13 @@
         <p>Don’t recompute the past. Cache each layer’s keys/values so decode does one
           token’s worth of work instead of reprocessing the whole sequence.</p></div>
       <div class="card"><span class="mstone">M5</span>
-        <h3>Quantization</h3>
-        <p>Store 16-bit weights in 8/4/2 bits with clever scaling. Shrinks memory and —
-          because decode is bandwidth-bound — <em>speeds it up</em>.</p></div>
-      <div class="card"><span class="mstone">M6</span>
-        <h3>Metal kernels</h3>
-        <p>Do the math on the GPU, tightly. Each op becomes an MSL shader we submit via
-          raw FFI; kernel fusion is the key speed lever.</p></div>
+        <h3>Metal bring-up</h3>
+        <p>Move the complete correct path to the Apple Silicon GPU through bounded raw
+          ObjC/Metal FFI. CPU remains the oracle.</p></div>
+      <div class="card"><span class="mstone">M6 → M7?</span>
+        <h3>Measure, then optimize or quantize</h3>
+        <p>Profile before fusion. Quantization happens only after a benchmark-driven
+          go/no-go; GGUF is a separate optional interoperability choice.</p></div>
     </div>
   </div>
 </section>
@@ -304,11 +304,11 @@
         <tbody>
           <tr><td>Concepts / vocabulary</td><td class="yes">✅ everything</td><td class="no">—</td><td class="no">— (we cite it)</td></tr>
           <tr><td>Tokenizer</td><td>mentions</td><td><code>ds4.c</code> (hash table)</td><td>M0 (Rust)</td></tr>
-          <tr><td>Forward pass</td><td class="yes">✅ the math</td><td><code>ds4.c</code> + <code>metal/*</code></td><td>M2 (Rust + MSL)</td></tr>
+          <tr><td>Forward pass</td><td class="yes">✅ the math</td><td><code>ds4.c</code> + <code>metal/*</code></td><td>M2 (CPU Rust)</td></tr>
           <tr><td>Sampling</td><td class="yes">✅</td><td><code>softmax, argsort</code></td><td>M3 (Rust)</td></tr>
           <tr><td>KV cache</td><td class="yes">✅ §5.3</td><td><code>ds4_kvstore.c</code> + SSD</td><td>M4 (RAM-first)</td></tr>
-          <tr><td>Quantization</td><td class="yes">✅ §5.1</td><td><code>gguf-tools/</code></td><td>M5 (8/4-bit)</td></tr>
-          <tr><td>Metal kernels</td><td class="yes">✅ §4.1</td><td><code>ds4_metal.m</code></td><td>M6 (raw FFI)</td></tr>
+          <tr><td>Quantization</td><td class="yes">✅ §5.1</td><td><code>gguf-tools/</code></td><td>M7 go/no-go</td></tr>
+          <tr><td>Metal kernels</td><td class="yes">✅ §4.1</td><td><code>ds4_metal.m</code></td><td>M5 bring-up; M6 optimize</td></tr>
           <tr><td>Multi-backend (CUDA/ROCm)</td><td>Ch 3–4</td><td><code>ds4_cuda.cu</code></td><td class="no">❌ Metal only</td></tr>
           <tr><td>Distributed / server / agent</td><td>Ch 7</td><td><code>ds4_server.c</code></td><td class="no">❌ out of scope</td></tr>
         </tbody>
@@ -329,7 +329,8 @@
       multi-session learning project. Not yet fast, capable, or finished. That’s the point.</p>
     <p>Built on three sources: <em>Inference Engineering</em> (Kiely),
       <a href="https://github.com/antirez/ds4">ds4</a> (antirez), and Raschka’s architecture writing.
-      Next milestone: <strong>M1 — load the weights</strong>.</p>
+      Current milestone: <strong>M2 — forward pass → logits</strong>. The accelerated
+      runtime targets modern Apple Silicon/Metal; non-Mac CPU execution is incidental.</p>
     <p class="meta">This page is a distillation of <code>docs/00-map.md</code>.
       © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p>
   </div>

@@ -52,7 +52,7 @@
       because M1's signature decision, <strong>“lazy bf16,”</strong> only makes sense once you
       can see the format.</p>
     <div class="callout">
-      <strong>This is not quantization.</strong> That's M5, and it's a different, lossy
+      <strong>This is not quantization.</strong> That's a conditional M7 decision, and it's a different, lossy
       story (bytes that need <em>decoding</em>). bf16 is a plain IEEE-style float — just a
       narrow one, whose bytes already <em>are</em> the numbers.
     </div>
@@ -168,7 +168,7 @@
       wider field. Rounding only enters the <em>other</em> direction (fp32 → bf16), which we
       never do here.</p>
     <div class="callout prose">
-      <strong>Contrast with M5's quantization.</strong> A <code>Q4_K</code> weight is
+      <strong>Contrast with quantization.</strong> A <code>Q4_K</code> weight is
       <em>not</em> a float you can shift into place — it's a 4-bit index into a block that
       shares a scale, and decoding it is real arithmetic. <strong>bf16 → f32 is free; dequant
       is not.</strong> Keep the two mentally separate.

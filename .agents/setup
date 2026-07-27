@@ -25,8 +25,8 @@ fi
 
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-echo "Ensuring Rust lint tooling is installed..."
-rustup component add clippy
+echo "Ensuring the pinned Rust toolchain and lint tooling are installed..."
+rustup component add clippy rustfmt
 
 echo "Syncing the locked Python oracle environment..."
 uv sync --directory "$repo_root/scripts" --frozen

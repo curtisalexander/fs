@@ -66,18 +66,18 @@
     <p class="eyebrow">Where we are</p>
     <h2>Build progress</h2>
     <div class="progress">
-      <div class="progress-bar"><span style="width:29%"></span></div>
-      <p class="progress-caption"><strong>2 / 7</strong> core milestones done ·
+      <div class="progress-bar"><span style="width:25%"></span></div>
+      <p class="progress-caption"><strong>2 / 8</strong> core milestones done ·
         currently <strong class="cur">M2 — forward pass → logits</strong></p>
       <ol class="milestones">
         <li class="ms ms--done"><span class="ms-id">M0</span><span class="ms-name">Tokenizer</span></li>
         <li class="ms ms--done"><span class="ms-id">M1</span><span class="ms-name">Load weights</span></li>
         <li class="ms ms--now"><span class="ms-id">M2</span><span class="ms-name">Forward pass</span></li>
-        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Sampling</span></li>
+        <li class="ms"><span class="ms-id">M3</span><span class="ms-name">Generation</span></li>
         <li class="ms"><span class="ms-id">M4</span><span class="ms-name">KV cache</span></li>
-        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Quantization</span></li>
-        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal kernels</span></li>
-        <li class="ms ms--stretch"><span class="ms-id">7+</span><span class="ms-name">Stretch</span></li>
+        <li class="ms"><span class="ms-id">M5</span><span class="ms-name">Metal bring-up</span></li>
+        <li class="ms"><span class="ms-id">M6</span><span class="ms-name">Metal optimize</span></li>
+        <li class="ms"><span class="ms-id">M7</span><span class="ms-name">Quantize?</span></li>
       </ol>
     </div>
   </div>
@@ -119,10 +119,10 @@
 
       <div class="card learn-card stub">
         <p class="lnum">MILESTONE M3 · ☐ TODO</p>
-        <h3>Sampling → generation</h3>
-        <p>Softmax + temperature, greedy / top-k / top-p, the autoregressive loop, streaming
-          output, stop tokens. The "it's alive" milestone.</p>
-        <p class="artifact"><code>fs chat "..."</code> streams a (slow) reply.</p>
+        <h3>Deterministic generation, then sampling</h3>
+        <p>Build the autoregressive loop and greedy oracle parity first; only then add
+          temperature / top-k / top-p and streaming. Chat templating remains optional.</p>
+        <p class="artifact"><code>fs generate "..."</code> reproduces a greedy continuation.</p>
         <p class="when">doc → lands with the milestone</p>
       </div>
 
@@ -131,37 +131,45 @@
         <h3>KV cache</h3>
         <p>Cache K/V per layer so decode does one-token work instead of reprocessing the whole
           sequence. RAM-only first. The "I made it faster" milestone.</p>
-        <p class="artifact">decode tok/s jumps; output unchanged vs M3.</p>
+        <p class="artifact">cached/uncached outputs agree; benchmark both as a baseline.</p>
         <p class="when">doc → lands with the milestone</p>
       </div>
 
       <div class="card learn-card stub">
         <p class="lnum">MILESTONE M5 · ☐ TODO</p>
-        <h3>Quantization</h3>
-        <p>Load/dequant 8-bit then 4-bit weights; measure quality vs speed vs memory. The
-          "it gets small" milestone — and where GGUF enters alongside <code>ds4</code>'s parser.</p>
-        <p class="artifact"><code>fs</code> runs a quantized model; memory drops, decode speeds up.</p>
+        <h3>Metal bring-up + end-to-end GPU</h3>
+        <p>Bring up device/queue/buffers/pipelines and move the complete path to MSL through
+          bounded raw ObjC/Metal FFI. CPU remains the correctness oracle.</p>
+        <p class="artifact">End-to-end GPU generation on the local Apple Silicon Mac.</p>
         <p class="when">doc → lands with the milestone</p>
       </div>
 
       <div class="card learn-card stub">
         <p class="lnum">MILESTONE M6 · ☐ TODO</p>
-        <h3>Metal acceleration</h3>
-        <p>Port the hot ops to MSL kernels, driven from Rust via <strong>raw Metal FFI</strong> —
-          then kernel fusion. The "feel the hardware" milestone.</p>
-        <p class="artifact">real interactive decode tok/s on the M-series GPU.</p>
+        <h3>Profile-driven Metal optimization</h3>
+        <p>Profile the correct GPU path, optimize measured bottlenecks, and fuse only where
+          reproducible before/after measurements justify it.</p>
+        <p class="artifact">Local-Mac benchmarks with CPU/unfused agreement.</p>
         <p class="when">doc → lands with the milestone</p>
       </div>
 
       <div class="card learn-card stub">
-        <p class="lnum">MILESTONE M7+ · ☐ STRETCH</p>
-        <h3>Stretch goals</h3>
-        <p>Pick by interest once the core engine breathes: speculative decoding, MoE routing,
-          DeepSeek-style compressed attention (MLA), on-disk KV / SSD streaming, a tiny REPL.</p>
-        <p class="artifact">the leap toward <code>ds4</code>'s actual model.</p>
+        <p class="lnum">MILESTONE M7 · ☐ TODO</p>
+        <h3>Quantization go/no-go</h3>
+        <p>Use the benchmark baseline to decide whether low-bit work earns its complexity.
+          GGUF remains a separate optional interoperability choice. Earlier stretch ideas are
+          explicitly optional post-core experiments, not promised curriculum.</p>
+        <p class="artifact">A documented decision; if go, measured quality/memory/speed deltas.</p>
         <p class="when">doc → per goal, if we take it</p>
       </div>
 
+    </div>
+
+    <div class="callout prose" style="margin-top:1.6rem">
+      <strong>Platform and checks.</strong> The accelerated engine targets modern Apple
+      Silicon/Metal. Default CI is model-free on macOS Apple Silicon; real-model
+      and Metal correctness/performance run on the local development Mac. Orbs are useful for
+      host checks but are not authoritative, and standard GitHub runners are not promised to run Metal.
     </div>
 
     <div class="callout prose" style="margin-top:1.6rem">

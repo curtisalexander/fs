@@ -12,6 +12,7 @@ pub mod tokenizer;
 // `model.safetensors` (the weights), and verify they line up via `fs inspect`.
 pub mod config;
 pub mod inspect;
+mod model_schema;
 pub mod safetensors;
 
 // M2 — forward pass → logits: widen the weights to f32 and run the network on the

@@ -104,23 +104,25 @@ So `ds4` has **no safetensors path at all** — it's a GGUF engine.
 
 ## Our decision (and why)
 
-**safetensors for M1–M4, then GGUF at M5.**
+**safetensors is the native correctness path; GGUF is optional interoperability.**
 
 The reasoning is **sequencing complexity to the milestone that needs it**:
 
 - **M1 should teach "weights are just bytes + a shape table."** safetensors makes
   that idea visceral in an afternoon, and Qwen ships it natively, so there's *no
   tooling detour* before we've loaded a single tensor.
-- **M2–M4 stay clean.** Real bf16 weights mean our first-ever forward pass isn't
+- **The core correctness path stays clean.** Real bf16 weights mean our first-ever forward pass isn't
   also fighting dequantization math while we hunt numerical bugs against the golden
   vector.
-- **M5 is where quantization becomes the lesson** — and GGUF *is* a quantization
-  format. Writing the GGUF loader *there*, side by side with `ds4`'s parser and
-  `gguf-tools/`, is the richest version of that comparison. ➡️ **Two formats =
-  two distinct lessons** ("load raw tensors" vs "load quantized tensors"), not
+- **Quantization and GGUF are separate decisions.** M7 begins with a benchmark-
+  driven go/no-go on low-bit weights. GGUF may later earn an optional
+  interoperability experiment alongside `ds4`'s parser and `gguf-tools/`, but is
+  neither required for quantization nor promised by the core roadmap. ➡️ **Two formats =
+  two distinct lessons** ("load raw tensors" vs "interoperate with GGUF"), not
   wasted work.
 
-We stay honest with `ds4` the whole time: it's GGUF-only; we converge with it at M5.
+We stay honest with `ds4`: it is GGUF-only, while our native path is safetensors.
+We compare its format work without promising that `fs` will adopt the format.
 
 ---
 

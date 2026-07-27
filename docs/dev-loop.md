@@ -19,12 +19,20 @@ changing code.
 
 ## Local checks
 
+The supported runtime target is modern Apple Silicon/macOS. Orbs and other hosts
+can edit and run CPU-only host checks, but are not authoritative and cannot
+validate future Metal. Normal GitHub CI should use a macOS Apple Silicon runner
+for model-free `fmt`, build, tests, and clippy; real-model and Metal
+correctness/performance belong on the development Mac.
+
 ```sh
 rustc --version
 cargo --version
 uv --version
-cargo build
-cargo test
+cargo fmt --all -- --check
+cargo build --locked
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
 The Rust edition is set in [`Cargo.toml`](../Cargo.toml). This project uses
@@ -44,13 +52,13 @@ for this repo. The environment is pinned by
 
 ```sh
 # Fetch tokenizer/config assets into models/qwen3-0.6b/ (ignored by git)
-uv run --directory scripts fetch_model.py
+uv run --directory scripts --frozen fetch_model.py
 
 # Later, fetch model weights too
-uv run --directory scripts fetch_model.py --weights
+uv run --directory scripts --frozen fetch_model.py --weights
 
 # Regenerate committed tokenizer golden vectors
-uv run --directory scripts gen_golden.py
+uv run --directory scripts --frozen gen_golden.py
 ```
 
 The generated oracle fixtures that tests rely on live under
@@ -95,7 +103,7 @@ for the dry-run versions and refuses any version published less than 7 days ago.
 Check what is outdated:
 
 ```sh
-uv tree --directory scripts --outdated
+uv tree --directory scripts --frozen --outdated
 ```
 
 uv supports the 7-day age gate directly with `--exclude-newer`. Always run the
@@ -118,7 +126,7 @@ uv lock --directory scripts --upgrade --exclude-newer "$cutoff"
 Then run:
 
 ```sh
-uv run --directory scripts python --version
+uv run --directory scripts --frozen python --version
 tools/license-check.sh
 cargo test
 ```
@@ -220,5 +228,5 @@ the same commit so they don't drift:
 2. [`PROGRESS.md`](../PROGRESS.md) — the **Current milestone** line at the top.
 3. [`README.md`](../README.md) — the **Status** blurb and the milestone checklist.
 4. [`docs/index.html`](index.html) — the **Build progress** strip: flip the
-   `ms--done`/`ms--now` classes, the `progress-bar` width (done ÷ 7 core), and
+   `ms--done`/`ms--now` classes, the `progress-bar` width (done ÷ 8 core), and
    the caption.

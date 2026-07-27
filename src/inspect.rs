@@ -4,8 +4,8 @@
 //! This is M1's verification *and* its teaching artifact. It ties the two halves
 //! together — [`crate::config::Config`] (the architecture) and
 //! [`crate::safetensors::SafeTensors`] (the weights) — and answers one question:
-//! **does the file contain exactly the tensors, with exactly the shapes, that the
-//! architecture implies?** Because the expected tensor set is *derivable* from the
+//! **does the file contain exactly the tensors, with exactly the dtypes and shapes,
+//! that the architecture implies?** Because the expected tensor set is *derivable* from the
 //! config, that check is nearly free, and it's stronger than a checksum: it
 //! catches a mis-shaped projection (the `[2048,1024]` vs `[1024,1024]` family of
 //! bugs) the moment we load, not deep in M2's forward pass.
@@ -18,22 +18,7 @@ use crate::config::Config;
 use crate::safetensors::SafeTensors;
 use std::collections::HashSet;
 
-/// The expected name + shape of one tensor, derived from the config. `optional`
-/// marks tensors that legitimately may be **absent** from the file.
-///
-/// The one optional tensor is `lm_head.weight`. `tie_word_embeddings: true` means
-/// the output projection *is* the embedding table (same weights, mathematically),
-/// so a file is free to omit `lm_head.weight` and reuse `embed_tokens`. But "tied"
-/// is a statement about the math, **not** a promise about the file: Qwen3-0.6B is
-/// tied and *still ships* a byte-identical `lm_head.weight` copy. So when tied,
-/// `lm_head.weight` may be either absent or a redundant duplicate — both are fine,
-/// hence `optional`. When *not* tied it is required (real, distinct weights).
-#[derive(Debug)]
-pub struct Expected {
-    pub name: String,
-    pub shape: Vec<usize>,
-    pub optional: bool,
-}
+pub use crate::model_schema::{Expected, expected_tensors};
 
 /// The result of comparing the file against the config.
 pub struct CrossCheck {
@@ -86,73 +71,7 @@ impl CrossCheck {
 ///     - `mlp.gate_proj.weight                = [I, H]`          (H ─▶ I)
 ///     - `mlp.up_proj.weight                  = [I, H]`
 ///     - `mlp.down_proj.weight                = [H, I]`          (I ─▶ H)
-pub fn expected_tensors(cfg: &Config) -> Vec<Expected> {
-    // The named dims (learning 05), pulled out once so each row below reads as a
-    // literal `[out, in]` — the shape exactly as it sits in the file.
-    let v = cfg.vocab_size; // V
-    let h = cfg.hidden_size; // H
-    let d = cfg.head_dim; // d — width of one attention head
-    let q = cfg.q_width(); // heads · d      (2048 for Qwen3-0.6B)
-    let kv = cfg.kv_width(); // kv_heads · d   (1024 — smaller under GQA)
-    let i = cfg.intermediate_size; // I — FFN inner width
-
-    // A row is `name : [out, in] (optional?)`. Every projection is stored `[out, in]`
-    // (learning 05); norms are 1-D scale vectors, so their single dim is the width
-    // they scale. `false` = required; the one `true` is the tied lm_head, below.
-    let e = |name: String, shape: Vec<usize>, optional: bool| Expected {
-        name,
-        shape,
-        optional,
-    };
-
-    let mut out = Vec::with_capacity(3 + 11 * cfg.num_hidden_layers);
-
-    // ── global input: the token table (a gather, id ─▶ H) ──
-    out.push(e("model.embed_tokens.weight".into(), vec![v, h], false));
-
-    // ── the transformer blocks, one identical set of 11 per layer (learning 10) ──
-    for l in 0..cfg.num_hidden_layers {
-        let p = format!("model.layers.{l}");
-        // attention half: norm → q/k/v → QK-norm → o, all leaving/returning the bus
-        out.push(e(format!("{p}.input_layernorm.weight"), vec![h], false)); //         scale H
-        out.push(e(format!("{p}.self_attn.q_proj.weight"), vec![q, h], false)); //  H ─▶ q
-        out.push(e(
-            format!("{p}.self_attn.k_proj.weight"),
-            vec![kv, h],
-            false,
-        )); // H ─▶ kv
-        out.push(e(
-            format!("{p}.self_attn.v_proj.weight"),
-            vec![kv, h],
-            false,
-        )); // H ─▶ kv
-        out.push(e(format!("{p}.self_attn.q_norm.weight"), vec![d], false)); //       scale d
-        out.push(e(format!("{p}.self_attn.k_norm.weight"), vec![d], false)); //       scale d
-        out.push(e(format!("{p}.self_attn.o_proj.weight"), vec![h, q], false)); //  q ─▶ H
-        // mlp half (SwiGLU): norm → gate/up → down, back onto the bus
-        out.push(e(
-            format!("{p}.post_attention_layernorm.weight"),
-            vec![h],
-            false,
-        )); // scale H
-        out.push(e(format!("{p}.mlp.gate_proj.weight"), vec![i, h], false)); //     H ─▶ I
-        out.push(e(format!("{p}.mlp.up_proj.weight"), vec![i, h], false)); //       H ─▶ I
-        out.push(e(format!("{p}.mlp.down_proj.weight"), vec![h, i], false)); //     I ─▶ H
-    }
-
-    // ── global output: final norm, then the LM head ──
-    out.push(e("model.norm.weight".into(), vec![h], false)); // scale H
-    // lm_head: H ─▶ V logits. Required if untied; optional if tied — a tied file may
-    // omit it OR ship a redundant byte-identical copy of embed_tokens (learning 10 §3).
-    out.push(e(
-        "lm_head.weight".into(),
-        vec![v, h],
-        cfg.tie_word_embeddings,
-    ));
-
-    out
-}
-
+///
 /// Compare the file's tensors against [`expected_tensors`].
 ///
 /// Steps:
@@ -187,6 +106,12 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
                     problems.push(format!(
                         "{}: shape {:?}, expected {:?}",
                         e.name, t.shape, e.shape
+                    ));
+                }
+                if t.dtype != e.dtype {
+                    problems.push(format!(
+                        "{}: dtype {:?}, expected {:?}",
+                        e.name, t.dtype, e.dtype
                     ));
                 }
             }
@@ -229,9 +154,9 @@ pub fn cross_check(cfg: &Config, st: &SafeTensors) -> CrossCheck {
                 commafy(head.num_elements())
             ));
         } else {
-            notes.push(
+            problems.push(
                 "lm_head.weight present under tie_word_embeddings but NOT byte-identical to \
-                 embed_tokens — unusual; counting both"
+                 embed_tokens"
                     .into(),
             );
         }
@@ -424,7 +349,7 @@ pub fn render_verdict(xc: &CrossCheck) -> String {
     s.push_str("── verdict ─────────────────────────────────────────────────────────────────\n");
     if xc.ok() {
         s.push_str(&format!(
-            "  ✓ all {} expected tensors present, shapes match the config\n",
+            "  ✓ all {} expected tensors present, dtypes/shapes match the config\n",
             xc.expected_count
         ));
     } else {
@@ -622,14 +547,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires fetched Qwen config; run on the target Mac"]
     fn real_qwen_config_implies_311_tensors_if_present() {
         // Reality anchor: the real config must imply exactly the 311 tensors we found
-        // in the header (3 global + 11 × 28). Skipped on a fresh checkout.
+        // in the header (3 global + 11 × 28). Explicit target-Mac check.
         let dir = "models/qwen3-0.6b";
-        if !std::path::Path::new(dir).join("config.json").exists() {
-            eprintln!("skipping: {dir}/config.json not fetched");
-            return;
-        }
         let cfg = Config::load(dir).expect("real Qwen config loads");
         let want = expected_tensors(&cfg);
         assert_eq!(want.len(), 311); // 3 + 11 × 28
@@ -655,7 +577,7 @@ mod tests {
 
     /// Write a valid `[u64 LE header len][JSON header][blob]` safetensors file at
     /// `path`. All tensors BF16, `fill`-filled so byte-equality is controllable.
-    fn write_model_file(path: &std::path::Path, rows: &[Row]) {
+    fn write_model_file_with_dtype(path: &std::path::Path, rows: &[Row], dtype: &str) {
         use std::io::Write;
         let mut entries = Vec::new();
         let mut blob = Vec::new();
@@ -665,7 +587,7 @@ mod tests {
             blob.resize(start + bytes, *fill);
             let end = blob.len();
             entries.push(format!(
-                r#""{name}":{{"dtype":"BF16","shape":{shape:?},"data_offsets":[{start},{end}]}}"#
+                r#""{name}":{{"dtype":"{dtype}","shape":{shape:?},"data_offsets":[{start},{end}]}}"#
             ));
         }
         let header = format!("{{{}}}", entries.join(","));
@@ -673,6 +595,10 @@ mod tests {
         f.write_all(&(header.len() as u64).to_le_bytes()).unwrap();
         f.write_all(header.as_bytes()).unwrap();
         f.write_all(&blob).unwrap();
+    }
+
+    fn write_model_file(path: &std::path::Path, rows: &[Row]) {
+        write_model_file_with_dtype(path, rows, "BF16");
     }
 
     /// Write a temp model file and load it back through the real `SafeTensors::load`,
@@ -811,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn tied_lm_head_that_differs_is_noted_not_deduped() {
+    fn tied_lm_head_that_differs_is_a_problem_and_not_deduped() {
         let cfg = mini_cfg(); // tied
         let mut rows = rows_for(&cfg);
         // Present but NOT a copy of embed (which is zero-filled): fill lm_head with 0x11.
@@ -823,11 +749,11 @@ mod tests {
         let st = load_model("differs", &rows);
         let xc = cross_check(&cfg, &st);
 
-        assert!(xc.ok(), "a differing tied head is a note, not a failure");
+        assert!(!xc.ok(), "a differing tied head must fail inspection");
         assert!(
-            xc.notes.iter().any(|n| n.contains("NOT byte-identical")),
-            "notes: {:?}",
-            xc.notes
+            xc.problems.iter().any(|n| n.contains("NOT byte-identical")),
+            "problems: {:?}",
+            xc.problems
         );
         assert_eq!(
             xc.stored_params, xc.logical_params,
@@ -836,15 +762,29 @@ mod tests {
     }
 
     #[test]
+    fn wrong_dtype_is_a_named_problem() {
+        let cfg = mini_cfg();
+        let rows = rows_for(&cfg);
+        let path = std::env::temp_dir().join("fs_inspect_wrong_dtype.safetensors");
+        write_model_file_with_dtype(&path, &rows, "F16");
+        let st = SafeTensors::load(path.to_str().unwrap()).unwrap();
+        let xc = cross_check(&cfg, &st);
+        assert!(!xc.ok());
+        assert!(
+            xc.problems
+                .iter()
+                .any(|p| p.contains("dtype F16, expected BF16"))
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    #[ignore = "requires fetched Qwen weights; run on the target Mac"]
     fn real_model_cross_checks_clean_if_present() {
         // The M1 payoff: load the real config + the 1.4 GB weights and prove the whole
-        // tensor set lines up. Skipped on a fresh checkout (assets git-ignored).
+        // tensor set lines up. Explicit target-Mac check.
         let dir = "models/qwen3-0.6b";
         let weights = format!("{dir}/model.safetensors");
-        if !std::path::Path::new(&weights).exists() {
-            eprintln!("skipping: {weights} not fetched");
-            return;
-        }
         let cfg = Config::load(dir).expect("real config loads");
         let st = SafeTensors::load(&weights).expect("real weights load");
         let xc = cross_check(&cfg, &st);

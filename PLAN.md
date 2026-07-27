@@ -22,8 +22,13 @@ Legend: ☐ todo · ◐ in progress · ☑ done
 - **First model = Qwen3-0.6B** (tiny dense): GQA + RoPE + SwiGLU + RMSNorm.
 - **Correctness = golden vectors** from the official implementation. Python only
   ever appears as a one-shot oracle, never as a second engine.
-- **Scope = Metal/macOS only.** No CUDA/ROCm, no server/agent/distributed (those
-  stay as things to *read* in `ds4`, not build).
+- **Product scope = modern Apple Silicon + Metal.** The clear CPU reference may
+  happen to run elsewhere for learning and orb host checks, but Linux portability
+  is not a supported product. No CUDA/ROCm or server/agent/distributed runtime.
+- **Verification boundary:** normal GitHub CI runs model-free `fmt`, build, tests,
+  and clippy on a macOS Apple Silicon runner. Asset-backed model checks and
+  all Metal correctness/performance checks run explicitly on the development Mac;
+  an orb is useful for editing and host checks, but is never authoritative.
 - **Two products:** the `fs` engine *and* the cross-linked docs that teach it.
 
 ---
@@ -42,9 +47,9 @@ memory. Read `config.json` (layers, dims, heads, vocab).
 - **Verify:** shapes/counts match the HF config; checksum a few tensors.
 - 📖 §4.2.2 "Model File Formats" (p.103) · 🔧 `ds4` GGUF path (`ds4.c` "owns GGUF
   loading", mmap-based) + `gguf-tools/`.
-- **Format decision (proposed):** **safetensors for M1–M4** (Qwen3-0.6B ships it
-  natively; trivial to parse; clean bf16 for correctness), then **GGUF at M5**
-  alongside ds4's parser when quantization is the lesson. ds4 itself is GGUF-only.
+- **Format decision:** safetensors is the native correctness path. GGUF is a
+  separate, optional interoperability decision after the core engine; it is not
+  coupled to quantization. `ds4` itself is GGUF-only.
 
 ## M2 — Forward pass → logits  ◐  *(current — the "it understands" milestone)*
 Embeddings → N transformer blocks (RMSNorm, RoPE, attention, SwiGLU) → final norm
@@ -55,35 +60,48 @@ Embeddings → N transformer blocks (RMSNorm, RoPE, attention, SwiGLU) → final
 - **Sub-steps:** matmul → RMSNorm → embedding gather → RoPE → attention (one head,
   then GQA) → SwiGLU FFN → stack the block → full model.
 
-## M3 — Sampling → generation  ☐  *(the "it's alive" milestone)*
-Softmax+temperature, greedy/top-k/top-p, the autoregressive loop, streaming output,
-stop tokens.
-- **Artifact:** `fs chat "..."` streams a (slow) reply to the terminal.
-- **Verify:** greedy decode reproduces the reference's greedy continuation.
+## M3 — Deterministic generation, then sampling  ☐  *(the "it's alive" milestone)*
+Build the autoregressive loop first with greedy selection and stop tokens; only
+after deterministic parity add temperature/top-k/top-p sampling and streaming.
+- **Artifact:** `fs generate "..."` produces a deterministic continuation.
+- **Verify:** greedy generation reproduces the official reference continuation.
+- **Optional afterward:** chat-template formatting and `fs chat`; useful UI, not
+  part of the generation correctness gate.
 - 📖 §2.2 (p.46) sampling · 🔧 `metal/{softmax,argsort}.metal`.
 
 ## M4 — KV cache  ☐  *(the "I made it faster" milestone)*
 Cache K/V per layer; decode does one-token work. RAM-only first.
-- **Artifact:** decode tok/s jumps; correctness unchanged vs M3.
-- **Verify:** same output as M3, measurably faster; benchmark prefill vs decode.
+- **Artifact:** cached decode plus an uncached benchmark baseline.
+- **Verify:** cached and uncached logits/tokens agree; report prefill and decode
+  measurements with the baseline before claiming a speedup.
 - 📖 §5.3 (p.136) · 🔧 `ds4_kvstore.c/.h`, `metal/dsv4_kv.metal` (SSD streaming = read-only study).
 
-## M5 — Quantization  ☐  *(the "it gets small" milestone)*
-Load/dequant 8-bit then 4-bit weights; measure quality + speed + memory.
-- **Artifact:** `fs` runs a quantized model; memory drops, decode speeds up.
-- **Verify:** perplexity/quality delta vs fp16 within a documented budget.
+## M5 — Metal bring-up and end-to-end GPU execution  ☐
+Bring up device/queue/buffers/pipelines, then move the complete inference path to
+MSL through a deliberately bounded raw Objective-C/Metal FFI surface.
+- **Artifact:** end-to-end generation executes on a modern Apple Silicon GPU.
+- **Verify:** GPU checkpoints agree with the CPU oracle on the local Mac. Standard
+  GitHub runners are not promised to execute Metal.
+- 📖 §4.1 (p.96) incl. fusion (p.100), §3.1 (p.74), §3.5 (p.89) · 🔧 `ds4_metal.m` + all of `metal/`.
+- **Note:** correctness and complete GPU execution come before optimization.
+
+## M6 — Profile-driven Metal optimization and fusion  ☐
+Profile the working GPU path, optimize measured bottlenecks, and fuse kernels only
+where the data justifies it.
+- **Artifact:** reproducible before/after local-Mac benchmarks.
+- **Verify:** every optimized/fused path still agrees with CPU and unfused GPU
+  paths; report hardware, prompt, dtype, prefill, and decode context.
+
+## M7 — Quantization, conditional  ☐
+Use the M4/M6 baselines to make an explicit benchmark-driven **go/no-go** decision.
+If go, add a measured low-bit path and document quality, memory, and speed deltas;
+if no-go, document the evidence and keep the clear full-precision path.
+- **GGUF is separate:** optional interoperability work, not a quantization
+  prerequisite and not part of the core completion gate.
 - 📖 §5.1 (p.120) · 🔧 `gguf-tools/`, `gguf-tools/imatrix/`, dequant in `metal/*`.
 
-## M6 — Metal acceleration  ☐  *(the "feel the hardware" milestone)*
-Port the hot ops to MSL kernels, driven from Rust via **raw Metal FFI**. Get the
-GPU doing the matmuls/attention. Then **kernel fusion**.
-- **Artifact:** decode tok/s on the M5 GPU; a real interactive speed.
-- **Verify:** GPU output matches CPU output; benchmark each fused kernel.
-- 📖 §4.1 (p.96) incl. fusion (p.100), §3.1 (p.74), §3.5 (p.89) · 🔧 `ds4_metal.m` + all of `metal/`.
-- **Note:** the FFI scaffolding (device/queue/buffers/pipelines) is its own sub-task.
-
-## M7+ — Stretch goals  ☐
-Pick by interest once the core engine breathes:
+## Post-core experiments  *(explicitly optional, not promised curriculum)*
+Pick by interest only after M7:
 - **Speculative decoding** (§5.2, p.129) — draft/target.
 - **MoE** (§2.2.4, p.53) — routing + expert FFNs (`metal/moe.metal`).
 - **DeepSeek-style compressed attention / MLA** (`dsv4_hc.metal`, `dsv4_kv.metal`;

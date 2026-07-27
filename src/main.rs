@@ -4,10 +4,8 @@
 //! using Qwen3-0.6B's real byte-level BPE vocabulary.
 //!
 //! This file is deliberately a *thin dispatcher*: parse argv by hand (no clap —
-//! see Cargo.toml on why), pick a subcommand, hand off to the library. The
-//! tokenizer itself still `todo!()`s — we sketch and fill it in together next
-//! (see `src/tokenizer.rs`). So `cargo build` succeeds today; `fs tokenize ...`
-//! compiles and runs but panics with a "not built yet" message until then.
+//! see Cargo.toml on why), pick a subcommand, and hand off to the library. A
+//! milestone command only appears here once its complete path is runnable.
 
 use std::process::ExitCode;
 
@@ -23,19 +21,17 @@ USAGE:
     fs tokenize <TEXT>       Encode TEXT into token IDs
     fs detokenize <IDS...>   Decode token IDs (space-separated) back into text
     fs inspect [DIR]         Print the model architecture + tensor table
-    fs logits <TEXT>         Forward pass; print the top-k next-token guesses
     fs help                  Show this message
 
 EXAMPLES:
     fs tokenize \"hello world\"
     fs detokenize 14990 1879
     fs inspect models/qwen3-0.6b
-    fs logits \"The capital of France is\"
 
 SETUP:
     Tokenizer assets load from ./models/qwen3-0.6b/.
-    Fetch them first:           uv run --directory scripts fetch_model.py
-    For `inspect`, also weights: uv run --directory scripts fetch_model.py --weights
+    Fetch them first:           uv run --directory scripts --frozen fetch_model.py
+    For `inspect`, also weights: uv run --directory scripts --frozen fetch_model.py --weights
 ";
 
 fn main() -> ExitCode {
@@ -45,7 +41,6 @@ fn main() -> ExitCode {
         Some((cmd, rest)) if cmd == "tokenize" => cmd_tokenize(rest),
         Some((cmd, rest)) if cmd == "detokenize" => cmd_detokenize(rest),
         Some((cmd, rest)) if cmd == "inspect" => cmd_inspect(rest),
-        Some((cmd, rest)) if cmd == "logits" => cmd_logits(rest),
         Some((cmd, _)) if matches!(cmd.as_str(), "help" | "--help" | "-h") => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -64,6 +59,13 @@ fn main() -> ExitCode {
 
 /// `fs tokenize <TEXT>` — encode one string argument into token IDs.
 fn cmd_tokenize(args: &[String]) -> ExitCode {
+    if args.len() > 1 {
+        eprintln!(
+            "fs tokenize: expected one TEXT argument, got {}",
+            args.len()
+        );
+        return ExitCode::FAILURE;
+    }
     let Some(text) = args.first() else {
         eprintln!("fs tokenize: missing TEXT argument\n");
         eprint!("{USAGE}");
@@ -131,29 +133,16 @@ fn cmd_detokenize(args: &[String]) -> ExitCode {
     }
 }
 
-/// How many ranked next-token guesses `fs logits` prints.
-const DEFAULT_TOP_K: usize = 10;
-
-/// `fs logits <TEXT>` — run the forward pass on TEXT and print the top-k most
-/// likely next tokens (id, logit, decoded piece). M2's runnable artifact.
-fn cmd_logits(args: &[String]) -> ExitCode {
-    let Some(text) = args.first() else {
-        eprintln!("fs logits: missing TEXT argument\n");
-        eprint!("{USAGE}");
-        return ExitCode::FAILURE;
-    };
-    match fs::forward::run(MODEL_DIR, text, DEFAULT_TOP_K) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("fs logits: {e}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
 /// `fs inspect [DIR]` — print the architecture + tensor table and cross-check the
 /// weights against `config.json`. DIR defaults to the bundled model directory.
 fn cmd_inspect(args: &[String]) -> ExitCode {
+    if args.len() > 1 {
+        eprintln!(
+            "fs inspect: expected at most one DIR argument, got {}",
+            args.len()
+        );
+        return ExitCode::FAILURE;
+    }
     let dir = args.first().map(String::as_str).unwrap_or(MODEL_DIR);
     match fs::inspect::run(dir) {
         // A clean cross-check exits 0; a shape mismatch is a real failure (exit 1)

@@ -25,7 +25,7 @@ the paperback from [Baseten Books](https://www.baseten.co/inference-engineering/
 |---|---|---:|---|
 | Ch 0 | Inference (what it is) | 15 | — |
 | Ch 1 | Prerequisites | 23 | — |
-| 1.4 | Measuring Latency & Throughput | 35 | M4, M6 |
+| 1.4 | Measuring Latency & Throughput | 35 | M4, M6, M7 decision |
 | Ch 2 | **Models** | 39 | M2 |
 | 2.1 | Neural Networks | 42 | M2 |
 | 2.1.1 | Linear Layers and Matmul | 44 | M2 |
@@ -34,21 +34,21 @@ the paperback from [Baseten Books](https://www.baseten.co/inference-engineering/
 | 2.2.1 | LLM Architecture | 49 | M1, M2 |
 | 2.2.2 | Transformer Blocks | 50 | M2 |
 | 2.2.3 | **Attention** | 52 | M2 |
-| 2.2.4 | Mixture of Experts | 53 | M7 |
+| 2.2.4 | Mixture of Experts | 53 | post-core experiment |
 | 2.4 | **Calculating Inference Bottlenecks** | 61 | (read for M4/M6) |
 | 2.4.1 | Ops:Byte Ratio & Arithmetic Intensity | 62 | M4, M6 |
 | 2.4.2 | LLM Inference Bottlenecks | 63 | M4, M6 |
 | 2.5 | Optimizing Attention | 67 | M2, M6 |
-| Ch 3 | **Hardware** | 71 | M6 |
-| 3.1 | GPU Architecture (compute 74 / memory 76) | 74 | M6 |
-| 3.5 | **Local Inference** (desktop 90 / mobile 91) | 89 | M6 |
-| Ch 4 | **Software** | 93 | M6 |
-| 4.1 | CUDA (kernels 98 / **fusion 100**) | 96 | M6 |
+| Ch 3 | **Hardware** | 71 | M5, M6 |
+| 3.1 | GPU Architecture (compute 74 / memory 76) | 74 | M5, M6 |
+| 3.5 | **Local Inference** (desktop 90 / mobile 91) | 89 | M5, M6 |
+| Ch 4 | **Software** | 93 | M5, M6 |
+| 4.1 | CUDA (kernels 98 / **fusion 100**) | 96 | M5, M6 |
 | 4.2.2 | Model File Formats | 103 | M1 |
 | 4.3 | Inference Engines (vLLM 106 …) | 105 | (context) |
-| Ch 5 | **Techniques** | 117 | M4, M5, M7 |
-| 5.1 | **Quantization** (formats 121 / approaches 125 / quality 128) | 120 | M5 |
-| 5.2 | Speculative Decoding | 129 | M7 |
+| Ch 5 | **Techniques** | 117 | M4, M7, post-core |
+| 5.1 | **Quantization** (formats 121 / approaches 125 / quality 128) | 120 | M7 go/no-go |
+| 5.2 | Speculative Decoding | 129 | post-core experiment |
 | 5.3 | **Caching** (reuse 136 / where 139 / long-ctx 141) | 136 | M4 |
 | 5.4 | Model Parallelism | 142 | (context) |
 | Ch 6 | Modalities | 153 | — |
@@ -85,20 +85,20 @@ it; we don't build its CUDA/ROCm/server/agent/distributed parts.
 | Model notes | `MODEL_CARD.md`, `README.md`, `STRIXHALO.md` | great reading |
 | Steering | `dir-steering/` | activation steering vectors |
 
-### Metal kernel map (`reference/ds4/metal/`) — our M6 rosetta stone
+### Metal kernel map (`reference/ds4/metal/`) — our M5/M6 rosetta stone
 | Shader | Op | Our milestone |
 |---|---|---|
 | `get_rows.metal` | embedding/row gather | M2 |
 | `norm.metal` | RMSNorm | M2 |
 | `dsv4_rope.metal` | RoPE | M2 |
 | `dense.metal` | dense matmul | M2 |
-| `flash_attn.metal` | attention (flash) | M2/M6 |
+| `flash_attn.metal` | attention (flash) | M2 concept; M5/M6 GPU |
 | `softmax.metal` | softmax | M2/M3 |
 | `glu.metal` | SwiGLU/GLU FFN | M2 |
-| `moe.metal` | MoE routing | M7 |
+| `moe.metal` | MoE routing | optional post-core |
 | `argsort.metal` | sort (top-k sampling) | M3 |
-| `dsv4_kv.metal` | compressed KV | M4/M7 |
-| `dsv4_hc.metal`, `dsv4_misc.metal` | DeepSeek compressed attn | M7 |
+| `dsv4_kv.metal` | compressed KV | M4 / optional post-core |
+| `dsv4_hc.metal`, `dsv4_misc.metal` | DeepSeek compressed attn | optional post-core |
 | `cpy / concat / repeat / set_rows / sum_rows / unary / bin` | tensor plumbing | as needed |
 
 ---
@@ -154,6 +154,7 @@ we read the paper + reference code and verify by reproducing numbers. The full
 > the *code* (we prove equivalence with golden numbers). See learning 10.
 
 ### Other tooling (fill in as we reach it)
-- Rust ↔ Metal via ObjC runtime FFI (`objc2` runtime; we avoid the `metal`
-  convenience crate) — *capture the exact approach at M6.*
-- Golden-vector script (HF `transformers` one-shot logit dump) — *add at M2.*
+- Rust ↔ Metal via a bounded raw ObjC runtime FFI surface (no Metal convenience
+  wrapper) — *capture the exact approach at M5 bring-up.*
+- Golden-vector script — `scripts/gen_forward_golden.py`, the pinned HF
+  `transformers` one-shot checkpoint generator landed for M2.

@@ -4,9 +4,44 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed**; attention next). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** the artifact. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, and deterministic top-k; **67 unit + 2 golden pass / 0 ignored, clippy clean**. Remaining scaffold starts at `attention_one_head`, then GQA/SwiGLU/block assembly, weight materialization, full forward, and CLI. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` remains verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
-**Engine status:** `fs tokenize` / `fs detokenize` **and now `fs inspect`** run end-to-end against Qwen3-0.6B. `src/safetensors.rs::Mmap::open` maps the file zero-copy via raw `mmap`/`munmap` FFI (RAII on `Drop`); `SafeTensors::load` reads `[u64 len][JSON header][blob]` into a validated `Tensor` directory; `src/config.rs::Config::load` parses the 7 dims + scalars (no silent defaults). `src/inspect.rs` derives `expected_tensors(cfg)` (3 global + 11×L, `lm_head` optional-when-tied), `cross_check` diffs it against the file (shape mismatches + missing-required + unexpected-extras → `problems`; redundant tied `lm_head` → a `note`; `stored` vs `logical` params + `embed_params`), and the `render_*` trio + `run` print the report and return cleanliness for the exit code. **51 unit + 2 golden green; clippy clean.** Real-model reality check passes: **311 tensors, 751,632,384 stored, 596,049,920 logical (the "0.6B"), embeddings 26.1%**, one redundancy note — all derived from `config.json`, none hard-coded. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed; Stage 1 hardening complete**). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** is the M2 artifact but stays hidden until its full path works. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, and deterministic top-k. The default model-free suite is **75 pass / 6 explicitly ignored**, build + clippy clean. The ignored asset-backed suite must run on the target Mac after fetching the model. Stage 2 resumes with `attention_one_head`, then GQA/SwiGLU/block assembly, weight materialization, full forward, layered checkpoints, and CLI restoration. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` was verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
+**Engine status:** `fs tokenize` / `fs detokenize` / `fs inspect` are the currently exposed commands. `Config::load` now validates architecture relationships and compute scalars. `SafeTensors::load` uses checked arithmetic and requires exact contiguous blob coverage; the shared Qwen schema makes BF16 part of inspection, and a non-identical stored tied `lm_head` is a failure. Tokenizer loading rejects invalid byte alphabets, duplicate/colliding specials and merges, while pretokenization proves every input byte is covered. Matrix/Tensor internals no longer expose mutable invariants outside the crate. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
 **Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–10` are now all graduated:** Learning 08 row-major/strides landed in Markdown + rich HTML with two theme-aware SVGs (logical grid→flat buffer; contiguous X/W row dot), carded in `learnings/index.html`; Learning 07's stale point-of-use widening claim was reconciled with M2's owned f32 working-copy design. New rows need `tools/sync-check.sh --update` on the landing commit. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+
+---
+
+## Session 19 — 2026-07-27 — Stage 1 hardening + Stage 3 roadmap reset
+
+**Boundaries:** `Config::load` now proves positive/even/divisible architecture
+relationships, checked widths, finite positive f32 compute scalars, and in-vocab
+special IDs. Tokenizer loading rejects invalid byte-alphabet vocab, duplicate
+merges, and empty/duplicate/colliding specials; pretokenization fails if regex
+matches do not tile every input byte. Safetensors parsing now uses checked
+file/header/shape arithmetic, strict metadata/UTF-8, and exact contiguous blob
+coverage. The neutral Qwen schema includes BF16; inspect fails wrong dtypes and a
+non-identical tied head. Matrix/Tensor invariants and raw bytes are crate-private.
+
+**Truthful surface/checks:** removed unfinished `fs logits` from CLI help/dispatch
+until M2 is complete; CLI no longer ignores extra tokenize/inspect arguments.
+Asset-backed tests are explicit ignores rather than successful early returns.
+Pinned Rust 1.97.1, added model-free Apple Silicon `macos-15` CI for fmt/build/test/
+clippy, and documented local-Mac authority for real-model and future Metal checks.
+The orb's default checks pass: **75 pass / 6 ignored**, build + clippy clean. Running
+the ignored suite here failed clearly because model assets are absent — expected,
+and not a substitute for the required target-Mac run.
+
+**Roadmap:** M3 is deterministic `fs generate` before sampling/chat; M4 adds KV
+cache plus a measured baseline; M5 brings up complete Metal execution; M6 profiles
+and optimizes/fuses; M7 makes a measured quantization go/no-go. GGUF and former
+stretch features are optional post-core work. The accelerated product is modern
+Apple Silicon/macOS only; incidental CPU orb/Linux execution is not product
+portability. Site progress is now correctly 2/8. HTML distillations changed with
+their Markdown sources; sync-ledger baselines cannot be checked in this shallow
+checkout and should be re-stamped on the landing commit.
+
+**Next:** run `uv run --directory scripts --frozen fetch_model.py --weights` and
+`cargo test --locked -- --ignored` on the target Mac. Once that gate is green,
+resume Stage 2 at the two-token causal `attention_one_head` toy.
 
 ---
 

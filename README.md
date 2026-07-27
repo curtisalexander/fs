@@ -16,8 +16,9 @@ A **failed star** (a brown dwarf) is smaller than a dwarf star: not enough mass
 to sustain fusion. This project is the smaller sibling of
 [**Dwarf Star (`ds4`)**](https://github.com/antirez/ds4), antirez's
 self-contained inference engine for DeepSeek-V4. Where `ds4` targets big MoE
-models on 96GB+ Macs, **Failed Star runs a *tiny* model on a 64GB MacBook Pro
-(M5)** — and trades raw capability for something else: every line is meant to be
+models on 96GB+ Macs, **Failed Star develops against a *tiny* model on the
+author's 64GB M5 MacBook Pro** — a development machine, not a minimum hardware
+requirement — and trades raw capability for something else: every line is meant to be
 *read, understood, and learned from*.
 
 ## Why this exists
@@ -57,13 +58,16 @@ and go-deeper resources — those fill gaps; these three are what the docs lean 
 - **Correctness via golden vectors:** match logits from the model's official
   implementation. (Python appears *only* as a one-shot oracle, never as a second
   engine.)
+- **Runtime target: modern Apple Silicon/macOS only.** The CPU reference may run
+  elsewhere incidentally for learning and orb checks; Linux is not a supported
+  product platform.
 
 ## Repo layout
 
 ```
 fs/
 ├── README.md                  ← you are here
-├── PLAN.md                    ← the milestone curriculum (M0 … M7+)
+├── PLAN.md                    ← the milestone curriculum (M0 … M7 + optional experiments)
 ├── PROGRESS.md                ← running session log; start here each session
 ├── Inference Engineering.pdf  ← local copy of the book (ignored; bring your own)
 ├── src/                       ← Rust engine + thin CLI
@@ -117,11 +121,16 @@ the CPU-first pass bottom-up: matmul → embeddings → transformer blocks → l
 - [x] **M0 — Tokenizer** — text ↔ token IDs, verified against the real vocab
 - [x] **M1 — Load the weights** — `fs inspect`; tensor set cross-checked vs the config
 - [ ] **M2 — Forward pass → logits** ← *current*
-- [ ] M3 — Sampling → generation
+- [ ] M3 — Deterministic generation, then sampling
 - [ ] M4 — KV cache
-- [ ] M5 — Quantization
-- [ ] M6 — Metal acceleration
-- [ ] M7+ — Stretch goals
+- [ ] M5 — Metal bring-up + end-to-end GPU execution
+- [ ] M6 — Profile-driven Metal optimization/fusion
+- [ ] M7 — Quantization go/no-go
+
+Default CI is model-free on macOS Apple Silicon (`fmt`, build, test, clippy).
+Asset-backed model checks and future Metal correctness/performance
+checks are explicit local-Mac runs; standard GitHub runners are not promised to
+run Metal, and orb results are useful but not authoritative.
 
 This is a slow, multi-session learning project. It is not (yet) fast, capable, or
 finished — that's the point. Local models keep getting better; the bet is that a

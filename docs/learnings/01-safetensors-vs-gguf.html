@@ -6,7 +6,7 @@
 <!-- Set theme before paint (no flash): saved choice, else OS preference, else dark. -->
 <script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <title>Learning 01 — Model file formats — Failed Star</title>
-<meta name="description" content="Where a model's weights live on disk: safetensors (plain bytes + a JSON shape table, what Qwen3 ships) vs GGUF (self-contained, quantized, what ds4 uses) — and why fs picks safetensors for M1–M4 and GGUF at M5.">
+<meta name="description" content="Where a model's weights live on disk: safetensors (plain bytes + a JSON shape table, what Qwen3 ships) vs GGUF (self-contained, quantized, what ds4 uses) — and why fs keeps safetensors native while treating GGUF as optional interoperability.">
 
 <!-- Sync ledger: this page is a distillation of the markdown below.
      See tools/sync-check.sh — it flags when these sources drift from this page. -->
@@ -253,7 +253,7 @@
 <section id="decision">
   <div class="container">
     <p class="eyebrow">Our decision (and why)</p>
-    <h2>safetensors for M1–M4, then GGUF at M5</h2>
+    <h2>safetensors native; GGUF optional</h2>
     <p class="prose">The reasoning is <strong>sequencing complexity to the milestone that needs
       it</strong>:</p>
     <div class="cards">
@@ -263,21 +263,21 @@
           there's <em>no tooling detour</em> before we've loaded a single tensor.</p>
       </div>
       <div class="card card--helpful">
-        <h3>M2–M4 · stay clean</h3>
+        <h3>The core correctness path stays clean</h3>
         <p>Real bf16 weights mean our first-ever forward pass isn't <em>also</em> fighting
           dequantization math while we hunt numerical bugs against the golden vector.</p>
       </div>
       <div class="card card--floor">
-        <h3>M5 · quantization becomes the lesson</h3>
-        <p>GGUF <em>is</em> a quantization format. Writing the GGUF loader there, side by side
-          with <code>ds4</code>'s parser and <code>gguf-tools/</code>, is the richest version of
-          that comparison.</p>
+        <h3>Quantization and GGUF are separate decisions</h3>
+        <p>M7 starts with a benchmark-driven low-bit go/no-go. GGUF may later earn an
+          optional interoperability experiment beside <code>ds4</code>'s parser and
+          <code>gguf-tools/</code>; it is not a core-roadmap promise.</p>
       </div>
     </div>
     <div class="callout prose">
-      <strong>Two formats = two distinct lessons</strong> — “load raw tensors” vs “load quantized
-      tensors” — not wasted work. We stay honest with <code>ds4</code> the whole time: it's
-      GGUF-only; we converge with it at M5.
+      <strong>Two formats = two distinct lessons</strong> — “load raw tensors” vs “interoperate
+      with GGUF” — not wasted work. <code>ds4</code> remains a GGUF-only reference; adoption
+      by <code>fs</code> is not promised.
     </div>
   </div>
 </section>
@@ -327,7 +327,7 @@
           “point tensors straight at the bytes” real.</li>
         <li>🔧 <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a> — the M1
           safetensors loader this note motivates.</li>
-        <li>🔧 <code>ds4</code> — the GGUF-only reference engine we converge with at M5.</li>
+        <li>🔧 <code>ds4</code> — the GGUF-only reference engine we compare against.</li>
         <li>Full note:
           <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/01-safetensors-vs-gguf.md"><code>docs/learnings/01-safetensors-vs-gguf.md</code></a>.</li>
       </ul>

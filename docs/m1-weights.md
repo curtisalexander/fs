@@ -188,9 +188,9 @@ fresh checkout stays green.
 
 - 📖 *Inference Engineering* §4.2.2 "Model File Formats" (p.103) — safetensors/GGUF;
   §2.2.1 (p.49) — LLM architecture.
-- 🔧 `ds4` — `ds4.c` owns GGUF loading (mmap-based); `gguf-tools/` is the parser we'll
-  read at **M5** when quantization is the lesson. ds4 is GGUF-only; we chose
-  safetensors for M1–M4 (Qwen ships it; clean bf16).
+- 🔧 `ds4` — `ds4.c` owns GGUF loading (mmap-based), but safetensors is our native
+  correctness path. GGUF is a separate optional interoperability decision after
+  the core roadmap, not coupled to M7's benchmark-driven quantization go/no-go.
 - 🧭 Raschka's [workflow](https://magazine.sebastianraschka.com/p/workflow-for-understanding-llms)
   — technical report → config → reference implementation.
 - Learnings: [01 · formats](learnings/01-safetensors-vs-gguf.md) ·
