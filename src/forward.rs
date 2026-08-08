@@ -326,7 +326,7 @@ pub fn attention_one_head(q: &Matrix, k: &Matrix, v: &Matrix) -> Matrix {
 
 /// Full grouped-query attention for one block: projections → QK-norm → RoPE →
 /// per-head causal attention (GQA: `gqa_group` query heads share each kv head) →
-/// concat → `o_proj`. Input/òutput both ride the residual bus at width `H`.
+/// concat → `o_proj`. Input/output both ride the residual bus at width `H`.
 ///
 /// Steps (with `hn = num_attention_heads`, `kvn = num_key_value_heads`, `d`):
 /// 1. `q = h.linear(q_proj)` → `[seq, hn·d]`; `k,v = h.linear(k/v_proj)` → `[seq, kvn·d]`.
@@ -336,7 +336,77 @@ pub fn attention_one_head(q: &Matrix, k: &Matrix, v: &Matrix) -> Matrix {
 ///    [`attention_one_head`] on that (q head, shared k head, shared v head).
 /// 4. concat head outputs → `[seq, hn·d]`, then `.linear(o_proj)` → `[seq, H]`.
 pub fn multi_head_attention(h: &Matrix, layer: &LayerWeights, cfg: &Config, rope: &Rope) -> Matrix {
-    todo!("project, qk-norm, rope, per-head causal attention with GQA sharing, o_proj")
+    assert_eq!(
+        h.cols, cfg.hidden_size,
+        "multi_head_attention: input width {} != hidden size {}",
+        h.cols, cfg.hidden_size
+    );
+    let q = h.linear(&layer.q_proj);
+    let k = h.linear(&layer.k_proj);
+    let v = h.linear(&layer.v_proj);
+    assert_eq!(
+        q.cols,
+        cfg.q_width(),
+        "multi_head_attention: q projection width {} != heads·d {}",
+        q.cols,
+        cfg.q_width()
+    );
+    assert_eq!(
+        (k.cols, v.cols),
+        (cfg.kv_width(), cfg.kv_width()),
+        "multi_head_attention: k/v widths [{},{}] != kv_heads·d {}",
+        k.cols,
+        v.cols,
+        cfg.kv_width()
+    );
+
+    let seq = h.rows;
+    let d = cfg.head_dim;
+    let mut k_heads = Vec::with_capacity(cfg.num_key_value_heads);
+    let mut v_heads = Vec::with_capacity(cfg.num_key_value_heads);
+    for hd in 0..cfg.num_key_value_heads {
+        let start = hd * d;
+        let mut k_head = Matrix::zeros(seq, d);
+        let mut v_head = Matrix::zeros(seq, d);
+        for t in 0..seq {
+            let normalized = rms_norm(&k.row(t)[start..start + d], &layer.k_norm, cfg.rms_norm_eps);
+            k_head.row_mut(t).copy_from_slice(&normalized);
+            rope.apply(k_head.row_mut(t), t);
+            v_head
+                .row_mut(t)
+                .copy_from_slice(&v.row(t)[start..start + d]);
+        }
+        k_heads.push(k_head);
+        v_heads.push(v_head);
+    }
+
+    let mut concatenated = Matrix::zeros(seq, cfg.q_width());
+    let group = cfg.gqa_group();
+    for hd in 0..cfg.num_attention_heads {
+        let start = hd * d;
+        let mut q_head = Matrix::zeros(seq, d);
+        for t in 0..seq {
+            let normalized = rms_norm(&q.row(t)[start..start + d], &layer.q_norm, cfg.rms_norm_eps);
+            q_head.row_mut(t).copy_from_slice(&normalized);
+            rope.apply(q_head.row_mut(t), t);
+        }
+
+        // Consecutive groups of query heads share one key/value head: for Qwen's
+        // 16 query and 8 KV heads, q heads [0,1] use KV 0, [2,3] use KV 1, …
+        let kv_head = hd / group;
+        let head_out = attention_one_head(&q_head, &k_heads[kv_head], &v_heads[kv_head]);
+        for t in 0..seq {
+            concatenated.row_mut(t)[start..start + d].copy_from_slice(head_out.row(t));
+        }
+    }
+
+    let out = concatenated.linear(&layer.o_proj);
+    assert_eq!(
+        out.cols, cfg.hidden_size,
+        "multi_head_attention: output width {} != hidden size {}",
+        out.cols, cfg.hidden_size
+    );
+    out
 }
 
 /// SwiGLU feed-forward for one block: `down( SiLU(gate(h)) ⊙ up(h) )`.
@@ -478,6 +548,59 @@ mod tests {
         assert!((got - want).abs() < 1e-6, "got {got}, want {want}");
     }
 
+    fn attention_toy_cfg() -> Config {
+        Config {
+            vocab_size: 10,
+            hidden_size: 4,
+            num_hidden_layers: 1,
+            head_dim: 2,
+            num_attention_heads: 2,
+            num_key_value_heads: 1,
+            intermediate_size: 4,
+            rms_norm_eps: 1e-6,
+            rope_theta: 10_000.0,
+            tie_word_embeddings: true,
+            bos_token_id: 0,
+            eos_token_id: 1,
+            max_position_embeddings: 2,
+        }
+    }
+
+    fn attention_toy_layer() -> LayerWeights {
+        LayerWeights {
+            input_layernorm: vec![1.; 4],
+            // q head 0 reads h[0:2], q head 1 reads h[2:4].
+            q_proj: Matrix::from_vec(
+                4,
+                4,
+                vec![
+                    1., 0., 0., 0., // q0[0]
+                    0., 1., 0., 0., // q0[1]
+                    0., 0., 1., 0., // q1[0]
+                    0., 0., 0., 1., // q1[1]
+                ],
+            ),
+            // The one shared KV head sees sums [h0+h2, h1+h3].
+            k_proj: Matrix::from_vec(2, 4, vec![1., 0., 1., 0., 0., 1., 0., 1.]),
+            // Values expose the final two input channels directly.
+            v_proj: Matrix::from_vec(2, 4, vec![0., 0., 1., 0., 0., 0., 0., 1.]),
+            q_norm: vec![1.5, 0.5],
+            k_norm: vec![0.75, 1.25],
+            // Identity keeps the concatenated [head0 | head1] slots observable.
+            o_proj: Matrix::from_vec(
+                4,
+                4,
+                vec![
+                    1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+                ],
+            ),
+            post_attention_layernorm: vec![1.; 4],
+            gate_proj: Matrix::zeros(4, 4),
+            up_proj: Matrix::zeros(4, 4),
+            down_proj: Matrix::zeros(4, 4),
+        }
+    }
+
     #[test]
     fn embedding_gather_copies_rows_in_token_order() {
         let embed = Matrix::from_vec(
@@ -589,6 +712,41 @@ mod tests {
             &Matrix::zeros(1, 2),
             &Matrix::zeros(2, 2),
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "attention_one_head: head width must be positive")]
+    fn attention_one_head_rejects_zero_width() {
+        let empty = Matrix::zeros(2, 0);
+        attention_one_head(&empty, &empty, &empty);
+    }
+
+    #[test]
+    fn multi_head_attention_composes_qk_norm_rope_and_gqa_heads() {
+        let cfg = attention_toy_cfg();
+        let layer = attention_toy_layer();
+        let h = Matrix::from_vec(2, 4, vec![1., 2., 3., 4., 2., 1., 0., -1.]);
+        let rope = Rope::new(h.rows, cfg.head_dim, cfg.rope_theta);
+
+        let got = multi_head_attention(&h, &layer, &cfg, &rope);
+
+        // Locked independent NumPy fp32 result. At t=0 both query heads return
+        // the sole visible shared value [3,4]. At t=1 their distinct normalized,
+        // rotated queries produce different blends of the same two KV rows.
+        let want = [
+            3.0,
+            4.0,
+            3.0,
+            4.0,
+            2.025_078_8,
+            2.375_131_6,
+            1.387_846,
+            1.313_076_5,
+        ];
+        assert_eq!((got.rows, got.cols), (2, 4));
+        for (&got, want) in got.data.iter().zip(want) {
+            assert_close(got, want);
+        }
     }
 
     #[test]

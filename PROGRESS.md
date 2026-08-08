@@ -4,9 +4,36 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed; Stage 1 hardening complete**). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** is the M2 artifact but stays hidden until its full path works. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, one-head causal scaled-dot-product attention, and deterministic top-k. The default model-free suite is **77 pass / 6 explicitly ignored**, build + clippy clean. The ignored asset-backed suite must run on the target Mac after fetching the model. Stage 2 resumes by composing QK-norm + RoPE + GQA in `multi_head_attention`, then SwiGLU/block assembly, weight materialization, full forward, layered checkpoints, and CLI restoration. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` was verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed; Stage 1 hardening complete**). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** is the M2 artifact but stays hidden until its full path works. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, causal scaled-dot-product attention, full QK-norm/RoPE/GQA multi-head composition, and deterministic top-k. The default model-free suite is **79 pass / 6 explicitly ignored**, build + clippy clean. The ignored asset-backed suite must run on the target Mac after fetching the model. Stage 2 resumes with SwiGLU, then block assembly, weight materialization, full forward, layered checkpoints, and CLI restoration. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` was verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` / `fs inspect` are the currently exposed commands. `Config::load` now validates architecture relationships and compute scalars. `SafeTensors::load` uses checked arithmetic and requires exact contiguous blob coverage; the shared Qwen schema makes BF16 part of inspection, and a non-identical stored tied `lm_head` is a failure. Tokenizer loading rejects invalid byte alphabets, duplicate/colliding specials and merges, while pretokenization proves every input byte is covered. Matrix/Tensor internals no longer expose mutable invariants outside the crate. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–11` are now all graduated:** Learning 11 teaches attention as a content-addressed weighted read with the exact two-token Rust test, explicit shapes, multi-head/GQA mechanics, Qwen3 operation order, and two theme-aware SVGs. Implementation remains paused before `multi_head_attention`. New rows need `tools/sync-check.sh --update` on the landing commit. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–11` are now all graduated:** Learning 11 teaches attention as a content-addressed weighted read with the exact two-token Rust test, explicit shapes, multi-head/GQA mechanics, Qwen3 operation order, and two theme-aware SVGs; the implementation now continues through `multi_head_attention`. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+
+---
+
+## Session 21 — 2026-08-08 — grouped-query multi-head composition
+
+**Multi-head composition:** implemented `multi_head_attention` as the architecture
+spells it: project `h[seq,H]` into q/k/v widths, split contiguous `d`-wide heads,
+RMSNorm every query/key head, apply RoPE by token position, map query head `hd` to
+KV head `hd / gqa_group`, run causal one-head attention, concatenate back into
+`[seq,heads·d]`, then apply `o_proj → [seq,H]`. Projection and residual-width
+relationships assert before returning; no reshape/view abstraction hides where
+the head slices live.
+
+**GQA proof:** a two-token toy uses `H=4`, `d=2`, two distinct query heads, and one
+shared KV head. Identity `o_proj` leaves `[head₀ | head₁]` visible. At token 0 both
+heads return the only visible shared value `[3,4]`; at token 1, non-unit QK scales
+and RoPE make the distinct queries produce different locked fp32 blends of those
+same two KV rows. The eight outputs match an independent NumPy fp32 oracle.
+
+**Verify:** focused attention tests **4 pass**; full model-free suite **79 pass / 6
+asset-backed ignored**; `cargo fmt --all -- --check`, `cargo clippy --locked
+--all-targets -- -D warnings`, and `git diff --check` clean. The target-Mac ignored
+suite gate from Session 19 remains outstanding because this orb has no model assets.
+
+**Next:** implement `swiglu_ffn` with a toy that separately exposes the gate and
+up paths before `down_proj`; then assemble both residual halves in
+`transformer_block` and compare block 0 against its committed golden checkpoint.
 
 ---
 
