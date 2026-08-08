@@ -159,6 +159,8 @@ The mechanism: each query is scored against every key (a dot product), the score
 are softmaxed into weights, and the values are combined by those weights. Then
 `o_proj` projects the concatenated per-head results back onto the `H`-wide bus. The
 query/kv asymmetry (16 vs 8) is **GQA** — see [learning 05](05-reading-shapes.md).
+For the full mechanics—explicit axes, a complete numerical trace, causal masking,
+and exactly how GQA shares K/V—continue to [learning 11](11-attention.md).
 
 **QK-norm (`q_norm`, `k_norm`) — the one you can't guess.** These are `[128]`
 RMSNorms (width `d`, one head) applied to *each query and key vector* right before
@@ -242,6 +244,8 @@ output in [learning 05](05-reading-shapes.md#how-this-shows-up-in-fs-inspect-and
   architecture whose structure lives in code (the root of Part 1).
 - ⬅ [`learning 04 · embedding models`](04-embedding-models.md) — `embed_tokens` as a
   gather, and the three senses of "embedding."
+- ➡ [`learning 11 · attention`](11-attention.md) — the score→mask→softmax→value
+  mechanics, worked numerically through multi-head GQA.
 - ➡ `docs/m1-weights.md` — the M1 milestone writeup (uses this anatomy).
 - 🔧 [`modeling_qwen3.py`](https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py)
   — the reference forward pass (spec + M2 oracle).

@@ -286,6 +286,10 @@
       </table>
     </div>
 
+    <p class="prose">For the full attention mechanics—explicit axes, the complete
+      score→mask→softmax→value numerical trace, and exactly how GQA shares K/V—continue to
+      <a href="./11-attention.html">learning 11 · attention</a>.</p>
+
     <div class="callout prose">
       <strong>QK-norm — the poster child for "read the reference, don't reason."</strong>
       GPT-2 and Llama-1 have no such tensors; nothing about attention <em>requires</em> them.
@@ -358,6 +362,8 @@ query_states = self.q_norm(self.q_proj(hidden_states)...)            # applied b
           <em>parameterizes</em> a structure that lives in code (the root of Part 1).</li>
         <li><a href="./04-embedding-models.html">Learning 04 · embedding models</a> —
           <code>embed_tokens</code> as a gather, and the three senses of "embedding."</li>
+        <li>➡ <a href="./11-attention.html">Learning 11 · attention</a> — the
+          score→mask→softmax→value mechanics, worked numerically through multi-head GQA.</li>
         <li>➡ <a href="../m1-weights.html">M1 · load the weights</a> — the milestone this
           anatomy feeds; <code>fs inspect</code> as the config↔weights handshake.</li>
         <li>🔧 <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py"><code>modeling_qwen3.py</code></a>

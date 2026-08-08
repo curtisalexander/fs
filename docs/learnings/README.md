@@ -17,3 +17,4 @@ and the big-picture [`../00-map.md`](../00-map.md).
 | 08 | [row-major & strides](08-row-major-strides.md) | 2026-07-26 | shape→element→byte offset; contiguous gathers; matmul/linear indexing; why `[out,in]` needs no physical transpose |
 | 09 | [config.json](09-config.md) | 2026-07-14 | the model's blueprint; config vs. code vs. weights; why a config parameterizes an architecture rather than describing one |
 | 10 | [transformer block anatomy](10-transformer-block-anatomy.md) | 2026-07-14 | what each tensor *is* (q/k/v/o, QK-norm, SwiGLU, lm_head); the **provenance chain** (creator→reference→us) and why we read the header/reference, not memory |
+| 11 | [attention, worked through](11-attention.md) | 2026-08-08 | content-addressed weighted reads; complete two-token trace; multi-head, GQA, and Qwen3's exact attention order |

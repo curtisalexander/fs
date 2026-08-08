@@ -4,9 +4,45 @@
 > log. Newest entry on top. The authoritative curriculum is [`PLAN.md`](PLAN.md);
 > the big picture is [`docs/00-map.md`](docs/00-map.md).
 
-**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed; Stage 1 hardening complete**). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** is the M2 artifact but stays hidden until its full path works. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, and deterministic top-k. The default model-free suite is **75 pass / 6 explicitly ignored**, build + clippy clean. The ignored asset-backed suite must run on the target Mac after fetching the model. Stage 2 resumes with `attention_one_head`, then GQA/SwiGLU/block assembly, weight materialization, full forward, layered checkpoints, and CLI restoration. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` was verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
+**Current milestone:** M2 — Forward pass → logits (◐ current — **design + oracle + numerical foundation landed; Stage 1 hardening complete**). Decisions locked (Sessions 15/17): `Matrix{data,rows,cols}` row-major f32 (no strides) · **f32 compute**, official HF oracle in eager CPU fp32, `atol=rtol=1e-4` · **layered golden checkpoints** (embed / block-0 / final-norm / logits) · single forward, **prefill only** (no sampling/KV-cache/loop) · widen bf16→f32 per-tensor on load · **`fs logits <TEXT>`** is the M2 artifact but stays hidden until its full path works. Implemented and unit-tested: `matmul`, `[out,in]` `linear`, embedding gather, RMSNorm (vector + rows), SiLU, RoPE table + rotate-half, one-head causal scaled-dot-product attention, and deterministic top-k. The default model-free suite is **77 pass / 6 explicitly ignored**, build + clippy clean. The ignored asset-backed suite must run on the target Mac after fetching the model. Stage 2 resumes by composing QK-norm + RoPE + GQA in `multi_head_attention`, then SwiGLU/block assembly, weight materialization, full forward, layered checkpoints, and CLI restoration. **M1 — Load the weights: ☑ done** — `fs inspect <dir>` was verified against the real Qwen3-0.6B (311 tensors, 751,632,384 stored / 596,049,920 logical params). M0 — Tokenizer ✅ complete (14/14 golden).
 **Engine status:** `fs tokenize` / `fs detokenize` / `fs inspect` are the currently exposed commands. `Config::load` now validates architecture relationships and compute scalars. `SafeTensors::load` uses checked arithmetic and requires exact contiguous blob coverage; the shared Qwen schema makes BF16 part of inspection, and a non-identical stored tied `lm_head` is a failure. Tokenizer loading rejects invalid byte alphabets, duplicate/colliding specials and merges, while pretokenization proves every input byte is covered. Matrix/Tensor internals no longer expose mutable invariants outside the crate. Milestone writeups: [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md) (both graduated to HTML).
-**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–10` are now all graduated:** Learning 08 row-major/strides landed in Markdown + rich HTML with two theme-aware SVGs (logical grid→flat buffer; contiguous X/W row dot), carded in `learnings/index.html`; Learning 07's stale point-of-use widening claim was reconciled with M2's owned f32 working-copy design. New rows need `tools/sync-check.sh --update` on the landing commit. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+**Site:** live at <https://curtisalexander.github.io/fs/> (GitHub Pages from `/docs`). **Learnings `01–11` are now all graduated:** Learning 11 teaches attention as a content-addressed weighted read with the exact two-token Rust test, explicit shapes, multi-head/GQA mechanics, Qwen3 operation order, and two theme-aware SVGs. Implementation remains paused before `multi_head_attention`. New rows need `tools/sync-check.sh --update` on the landing commit. **Milestone docs:** [`docs/m0-tokenizer.md`](docs/m0-tokenizer.md), [`docs/m1-weights.md`](docs/m1-weights.md); next is `docs/m2-forward-pass.md` at M2 close.
+
+---
+
+## Session 20 — 2026-08-08 — first Stage 2 primitive: one causal attention head
+
+**Why:** resume M2 at the smallest composition boundary after the hardened numeric
+foundation: scaled-dot-product attention for one head, before adding Qwen3's
+QK-norm, RoPE, and grouped-query head wiring.
+
+**`attention_one_head`:** accepts explicit `q/k/v [seq,d]` matrices and rejects
+mismatched shapes or zero head width. For each query row `t`, it computes only the
+causally visible prefix `j ≤ t`, scales dot products by `1/√d`, uses max-subtracted
+f32 softmax for numerical stability, and forms the weighted sum of the visible
+value rows. Future positions are structurally absent from the score vector rather
+than allocated and filled with `-∞`.
+
+**Learning 11 authored + graduated before composition:**
+[`docs/learnings/11-attention.md`](docs/learnings/11-attention.md) closes the gap
+between shape summaries and implementation: the exact two-token
+score→mask→stable-softmax→value trace, multi-head packing, explicit Qwen3 shapes,
+GQA sharing, and QK-norm/RoPE/causal-attention order. Its HTML distillation adds
+two theme-aware SVGs (the numerical trace and a 4-query/2-KV sharing map), and is
+wired from Learning 10, the interactive attention toy, and the Learnings index.
+Implementation is deliberately still paused before `multi_head_attention`.
+
+**Verify:** a two-token known-answer test simultaneously locks causality, `√d`
+scaling, softmax, and value mixing; a second test locks loud shape rejection.
+`cargo fmt --all -- --check`, `cargo build --locked`, `cargo test --locked`
+(**77 pass / 6 ignored**), and `cargo clippy --locked --all-targets -- -D warnings`
+all pass in the orb. Asset-backed checks remain owed on the target Mac.
+
+**Next:** implement `multi_head_attention`: project Q/K/V, split contiguous head
+slices, apply per-head QK RMSNorm and RoPE, map each query head to
+`kv_head = query_head / gqa_group`, run `attention_one_head`, concatenate the
+query-head outputs, and apply `o_proj`. Lock it first with a tiny GQA toy that
+makes shared K/V heads observable.
 
 ---
 

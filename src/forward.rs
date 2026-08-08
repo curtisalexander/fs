@@ -265,9 +265,63 @@ impl Rope {
 /// `softmax` over `j`, then `out_t = Σⱼ softmaxⱼ · v_j`. Returns `[seq, d]`.
 /// This is the "one head first" sub-step; GQA wiring is [`multi_head_attention`].
 pub fn attention_one_head(q: &Matrix, k: &Matrix, v: &Matrix) -> Matrix {
+    assert_eq!(
+        (q.rows, q.cols),
+        (k.rows, k.cols),
+        "attention_one_head: q shape [{}×{}] != k shape [{}×{}]",
+        q.rows,
+        q.cols,
+        k.rows,
+        k.cols
+    );
+    assert_eq!(
+        (q.rows, q.cols),
+        (v.rows, v.cols),
+        "attention_one_head: q shape [{}×{}] != v shape [{}×{}]",
+        q.rows,
+        q.cols,
+        v.rows,
+        v.cols
+    );
+    assert!(
+        q.cols > 0,
+        "attention_one_head: head width must be positive"
+    );
+
+    let seq = q.rows;
     let d = q.cols;
-    // for t in 0..seq: scores over j in 0..=t, scale 1/√d, softmax, weighted sum of v
-    todo!("causal scaled-dot-product for a single head")
+    let scale = 1.0 / (d as f32).sqrt();
+    let mut out = Matrix::zeros(seq, d);
+
+    for t in 0..seq {
+        // Future positions never enter the score vector: this is the causal mask
+        // made structural rather than represented by allocated -∞ entries.
+        let mut scores = Vec::with_capacity(t + 1);
+        for j in 0..=t {
+            let mut dot = 0.0;
+            for i in 0..d {
+                dot += q.row(t)[i] * k.row(j)[i];
+            }
+            scores.push(dot * scale);
+        }
+
+        // Stable softmax: subtracting the maximum preserves the probabilities
+        // while preventing exp(large score) from overflowing.
+        let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mut denominator = 0.0;
+        for score in &mut scores {
+            *score = (*score - max_score).exp();
+            denominator += *score;
+        }
+
+        for (j, numerator) in scores.iter().enumerate() {
+            let weight = numerator / denominator;
+            for i in 0..d {
+                out.data[t * d + i] += weight * v.row(j)[i];
+            }
+        }
+    }
+    out
 }
 
 /// Full grouped-query attention for one block: projections → QK-norm → RoPE →
@@ -508,6 +562,33 @@ mod tests {
         assert_close(sin[63], 0.050_805_688);
         assert_eq!(cos[0], cos[64]);
         assert_eq!(sin[63], sin[127]);
+    }
+
+    #[test]
+    fn attention_one_head_is_scaled_and_causal() {
+        // At t=0 only v₀ is visible. At t=1 the scores are [0, 1/√2], so this
+        // simultaneously locks the causal prefix, √d scaling, softmax, and the
+        // weighted value sum on a two-token non-square-valued example.
+        let q = Matrix::from_vec(2, 2, vec![1., 0., 0., 1.]);
+        let k = Matrix::from_vec(2, 2, vec![1., 0., 0., 1.]);
+        let v = Matrix::from_vec(2, 2, vec![10., 0., 0., 20.]);
+
+        let got = attention_one_head(&q, &k, &v);
+
+        assert_eq!((got.rows, got.cols), (2, 2));
+        assert_eq!(got.row(0), &[10., 0.]);
+        assert_close(got.row(1)[0], 3.302_384_6);
+        assert_close(got.row(1)[1], 13.395_231);
+    }
+
+    #[test]
+    #[should_panic(expected = "q shape [2×2] != k shape [1×2]")]
+    fn attention_one_head_rejects_mismatched_shapes() {
+        attention_one_head(
+            &Matrix::zeros(2, 2),
+            &Matrix::zeros(1, 2),
+            &Matrix::zeros(2, 2),
+        );
     }
 
     #[test]

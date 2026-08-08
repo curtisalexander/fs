@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('fs-theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<title>Learning 11 — Attention, worked through — Failed Star</title>
+<meta name="description" content="Attention as a content-addressed weighted read: a complete two-token numerical trace, explicit shapes, multi-head and GQA mechanics, and Qwen3's exact operation order.">
+<meta name="fs-distills" content="docs/learnings/11-attention.md">
+<link rel="stylesheet" href="../assets/css/main.css">
+<link rel="icon" href="../assets/logo/star-mono.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="site-header"><div class="container">
+  <a class="brand" href="../index.html" aria-label="Failed Star home"><img src="../assets/logo/star.svg" width="30" height="30" alt="">Failed Star <span class="tld">/ fs</span></a>
+  <nav class="nav"><a href="../index.html">Home</a><a href="../prerequisites.html">Prerequisites</a><a href="../diagrams.html">Diagrams</a><a href="../milestones.html">Milestones</a><a href="./index.html" class="current" aria-current="page">Learnings</a><a href="https://github.com/curtisalexander/fs">GitHub</a></nav>
+  <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle light and dark theme" title="Toggle light / dark"><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg><svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"/></svg></button>
+</div></header>
+
+<section id="intro"><div class="container prose">
+  <p class="eyebrow">Learning 11 · every intermediate visible</p>
+  <h2>Attention, worked all the way through</h2>
+  <p class="note-meta"><b>Context:</b> M2, after <code>attention_one_head</code>, before <code>multi_head_attention</code> · <b>Status:</b> <span class="status-live">living</span></p>
+  <p class="lead">Attention is not vague “focus.” It is a <strong>content-addressed weighted read</strong>: Q asks what this token seeks, K says how each token can be matched, and V is what that token carries if selected.</p>
+  <div class="callout"><strong>Q, K, and V are different learned projections of the residual stream</strong>—not raw token vectors. Q and K determine weights; those weights combine V rows.</div>
+  <div class="cites"><span class="chip chip--book">📖 Inference Engineering · §2.2.3</span><span class="chip chip--ds4">🔧 ds4 · flash_attn / softmax</span><span class="chip chip--rasch">🧭 Raschka · MHA / GQA / QK-norm</span></div>
+</div></section>
+
+<section id="one-head"><div class="container">
+  <p class="eyebrow">One head · explicit axes</p><h2>Score, mask, normalize, read</h2>
+  <div class="table-wrap"><table><thead><tr><th>stage</th><th>shape</th><th>axes</th></tr></thead><tbody>
+    <tr><td><code>Q, K, V</code></td><td><code>[seq,d]</code></td><td>token position × head feature</td></tr>
+    <tr><td><code>S = QKᵀ/√d</code></td><td><code>[seq,seq]</code></td><td>query position × key position</td></tr>
+    <tr><td>causal mask, then <code>A = row_softmax(S)</code></td><td><code>[seq,seq]</code></td><td>one distribution over visible keys per query row</td></tr>
+    <tr><td><code>O = AV</code></td><td><code>[seq,d]</code></td><td>query position × carried feature</td></tr>
+  </tbody></table></div>
+  <p class="prose">Output row <code>O[t,:]</code> mixes value rows using <code>A[t,:]</code>. It does not shuffle token order: each query position still owns exactly one output row.</p>
+
+  <figure class="figure">
+    <svg viewBox="0 0 980 390" role="img" aria-label="Complete two-token attention trace. Q and K are the two by two identity matrix; V has rows ten zero and zero twenty. Scaled scores are point seven zero seven one on the diagonal. The causal mask replaces the upper-right score with negative infinity. Row softmax gives weights one zero and point three three zero two three eight four six, point six six nine seven six one five four. Multiplying by V gives outputs ten zero and three point three zero two three eight four six, thirteen point three nine five two three one. Shapes are shown at every stage.">
+      <style>
+        .aedge{stroke:var(--text-mute);stroke-width:1.5;fill:none}.abox{stroke-width:1.4}.as{fill:var(--ds4);fill-opacity:.13;stroke:var(--ds4)}.am{fill:var(--ember);fill-opacity:.14;stroke:var(--ember)}.aw{fill:var(--book);fill-opacity:.15;stroke:var(--book)}.av{fill:var(--dusk);fill-opacity:.16;stroke:var(--dusk)}.ah{font:15px var(--serif);fill:var(--text)}.at{font:12px var(--mono);fill:var(--text)}.ad{font:10.5px var(--mono);fill:var(--text-dim)}.al{font:10px var(--mono);fill:var(--text-mute)}
+      </style>
+      <defs><marker id="ah11trace" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--text-mute)"/></marker></defs>
+      <!-- connectors first, so translucent nodes cover their ends -->
+      <path class="aedge" d="M208 170H258" marker-end="url(#ah11trace)"/><path class="aedge" d="M448 170H498" marker-end="url(#ah11trace)"/><path class="aedge" d="M688 170H738" marker-end="url(#ah11trace)"/>
+      <rect class="abox as" x="18" y="55" width="190" height="230" rx="12"/><text class="ah" x="113" y="84" text-anchor="middle">scaled scores</text><text class="ad" x="113" y="103" text-anchor="middle">S = QKᵀ/√2 · [2,2]</text><text class="at" x="113" y="145" text-anchor="middle">[[0.7071, 0],</text><text class="at" x="113" y="167" text-anchor="middle"> [0, 0.7071]]</text><text class="al" x="113" y="218" text-anchor="middle">Q = K = [[1,0],[0,1]]</text><text class="al" x="113" y="238" text-anchor="middle">d = 2 → 1/√d = 0.7071</text>
+      <rect class="abox am" x="258" y="55" width="190" height="230" rx="12"/><text class="ah" x="353" y="84" text-anchor="middle">causal mask</text><text class="ad" x="353" y="103" text-anchor="middle">future j &gt; t → −∞ · [2,2]</text><text class="at" x="353" y="145" text-anchor="middle">[[0.7071, −∞],</text><text class="at" x="353" y="167" text-anchor="middle"> [0, 0.7071]]</text><text class="al" x="353" y="218" text-anchor="middle">t=0 cannot read j=1</text>
+      <rect class="abox aw" x="498" y="55" width="190" height="230" rx="12"/><text class="ah" x="593" y="84" text-anchor="middle">row softmax</text><text class="ad" x="593" y="103" text-anchor="middle">A · each row sums to 1 · [2,2]</text><text class="at" x="593" y="145" text-anchor="middle">[[1, 0],</text><text class="at" x="593" y="167" text-anchor="middle"> [0.33023846,</text><text class="at" x="593" y="189" text-anchor="middle">  0.66976154]]</text><text class="al" x="593" y="235" text-anchor="middle">subtract row max, then exp</text>
+      <rect class="abox av" x="738" y="55" width="224" height="230" rx="12"/><text class="ah" x="850" y="84" text-anchor="middle">weighted V</text><text class="ad" x="850" y="103" text-anchor="middle">O = AV · [2,2]</text><text class="at" x="850" y="145" text-anchor="middle">[[10, 0],</text><text class="at" x="850" y="167" text-anchor="middle"> [3.3023846,</text><text class="at" x="850" y="189" text-anchor="middle">  13.395231]]</text><text class="al" x="850" y="225" text-anchor="middle">V = [[10,0],[0,20]]</text>
+      <text class="al" x="233" y="148" text-anchor="middle">mask</text><text class="al" x="473" y="148" text-anchor="middle">softmax</text><text class="al" x="713" y="148" text-anchor="middle">× V</text>
+      <text class="at" x="490" y="335" text-anchor="middle">t=0 → v₀ only · t=1 → 0.33023846·v₀ + 0.66976154·v₁</text>
+    </svg>
+    <div class="legend"><span><i style="background:var(--ds4)"></i> matching scores</span><span><i style="background:var(--ember)"></i> legal prefix</span><span><i style="background:var(--book)"></i> read weights</span><span><i style="background:var(--dusk)"></i> carried output</span></div>
+    <figcaption>The exact known-answer test in <code>src/forward.rs</code>: a complete score → mask → stable row-softmax → weighted-value trace, with no hidden vectors.</figcaption>
+  </figure>
+
+  <h3>Why scaling and stable softmax matter</h3>
+  <p class="prose">A dot product sums <code>d</code> terms, so its typical magnitude grows with head width. Dividing by <code>√d</code> keeps scores from driving softmax into saturation. Softmax subtracts each row's maximum before exponentiation: <code>exp(xᵢ−max(x))/Σexp(xⱼ−max(x))</code>. The probabilities are unchanged, but exponentials cannot overflow. A masked <code>−∞</code> becomes weight zero.</p>
+</div></section>
+
+<section id="heads"><div class="container">
+  <p class="eyebrow">Multi-head · grouped-query attention</p><h2>Independent queries, shared K/V where specified</h2>
+  <p class="prose">Projections pack heads along the feature axis. For Qwen3-0.6B: <code>H=1024</code>, 16 query heads, 8 KV heads, <code>d=128</code>. Thus Q is <code>[seq,2048]</code>; K and V are each <code>[seq,1024]</code>. Each query head runs attention independently. Its 16 outputs concatenate to <code>[seq,2048]</code>, then <code>o_proj → [seq,1024]</code>, back to H.</p>
+  <figure class="figure">
+    <svg viewBox="0 0 820 400" role="img" aria-label="Grouped-query attention mapping with four query heads and two key-value heads. Query heads zero and one both connect to key-value head zero. Query heads two and three both connect to key-value head one. The query heads remain separate and produce four distinct outputs; only keys and values are shared. Qwen uses the same two-to-one grouping with sixteen query heads and eight key-value heads.">
+      <style>.gedge{stroke:var(--text-mute);stroke-width:2;fill:none}.gq{fill:var(--book);fill-opacity:.16;stroke:var(--book);stroke-width:1.5}.gkv{fill:var(--ds4);fill-opacity:.15;stroke:var(--ds4);stroke-width:1.5}.go{fill:var(--ember);fill-opacity:.14;stroke:var(--ember);stroke-width:1.5}.gh{font:15px var(--serif);fill:var(--text)}.gt{font:12px var(--mono);fill:var(--text)}.gd{font:10.5px var(--mono);fill:var(--text-dim)}</style>
+      <defs><marker id="ah11gqa" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--text-mute)"/></marker></defs>
+      <!-- all connectors precede translucent nodes -->
+      <path class="gedge" d="M205 83C310 83 300 118 405 118" marker-end="url(#ah11gqa)"/><path class="gedge" d="M205 153C310 153 300 118 405 118" marker-end="url(#ah11gqa)"/><path class="gedge" d="M205 243C310 243 300 278 405 278" marker-end="url(#ah11gqa)"/><path class="gedge" d="M205 313C310 313 300 278 405 278" marker-end="url(#ah11gqa)"/>
+      <path class="gedge" d="M575 118C640 118 625 83 685 83" marker-end="url(#ah11gqa)"/><path class="gedge" d="M575 118C640 118 625 153 685 153" marker-end="url(#ah11gqa)"/><path class="gedge" d="M575 278C640 278 625 243 685 243" marker-end="url(#ah11gqa)"/><path class="gedge" d="M575 278C640 278 625 313 685 313" marker-end="url(#ah11gqa)"/>
+      <text class="gh" x="125" y="34" text-anchor="middle">query heads</text><text class="gh" x="490" y="34" text-anchor="middle">shared K/V heads</text><text class="gh" x="745" y="34" text-anchor="middle">distinct outputs</text>
+      <rect class="gq" x="45" y="58" width="160" height="50" rx="9"/><text class="gt" x="125" y="88" text-anchor="middle">q0</text><rect class="gq" x="45" y="128" width="160" height="50" rx="9"/><text class="gt" x="125" y="158" text-anchor="middle">q1</text><rect class="gq" x="45" y="218" width="160" height="50" rx="9"/><text class="gt" x="125" y="248" text-anchor="middle">q2</text><rect class="gq" x="45" y="288" width="160" height="50" rx="9"/><text class="gt" x="125" y="318" text-anchor="middle">q3</text>
+      <rect class="gkv" x="405" y="83" width="170" height="70" rx="10"/><text class="gt" x="490" y="113" text-anchor="middle">kv0</text><text class="gd" x="490" y="134" text-anchor="middle">shared K and V</text><rect class="gkv" x="405" y="243" width="170" height="70" rx="10"/><text class="gt" x="490" y="273" text-anchor="middle">kv1</text><text class="gd" x="490" y="294" text-anchor="middle">shared K and V</text>
+      <rect class="go" x="685" y="58" width="120" height="50" rx="9"/><text class="gt" x="745" y="88" text-anchor="middle">o0</text><rect class="go" x="685" y="128" width="120" height="50" rx="9"/><text class="gt" x="745" y="158" text-anchor="middle">o1</text><rect class="go" x="685" y="218" width="120" height="50" rx="9"/><text class="gt" x="745" y="248" text-anchor="middle">o2</text><rect class="go" x="685" y="288" width="120" height="50" rx="9"/><text class="gt" x="745" y="318" text-anchor="middle">o3</text>
+      <text class="gd" x="410" y="370" text-anchor="middle">toy: group = 4/2 = 2 · Qwen: group = 16/8 = 2 · kv(h) = floor(h/2)</text>
+    </svg>
+    <div class="legend"><span><i style="background:var(--book)"></i> independent Q</span><span><i style="background:var(--ds4)"></i> shared K/V</span><span><i style="background:var(--ember)"></i> independent result</span></div>
+    <figcaption>Sharing K/V does <strong>not</strong> average query heads or their outputs. Different Q vectors score the shared keys differently, so every query head keeps its own weighted read.</figcaption>
+  </figure>
+</div></section>
+
+<section id="qwen-order"><div class="container prose">
+  <p class="eyebrow">Architecture fidelity</p><h2>Qwen3's exact order</h2>
+  <pre><code>residual h
+→ q/k/v projections → split heads
+→ RMSNorm q and k per d (not V)
+→ RoPE q and k (not V)
+→ per-query-head causal attention with GQA sharing
+→ concatenate → o_proj → H</code></pre>
+  <div class="split"><div class="phase phase--prefill"><h3>QK-norm ≠ scaling</h3><p>QK-norm is learned per-feature RMS normalization of Q/K vectors. <code>1/√d</code> is fixed scaling of their dot products. They control different quantities, so both happen.</p></div><div class="phase phase--decode"><h3>RoPE ≠ causal mask</h3><p>RoPE adds relative-position information to Q/K matching. The mask forbids illegal future reads. Position-aware scores still need a visibility rule.</p></div></div>
+</div></section>
+
+<section id="code"><div class="container prose">
+  <p class="eyebrow">Bridge to code</p><h2>One head is real; composition is next</h2>
+  <p><code>src/forward.rs::attention_one_head</code> now asserts <code>q/k/v [seq,d]</code>, computes only the causal prefix, uses max-subtracted stable softmax, and returns <code>[seq,d]</code>. Its known-answer test is the full numerical trace above. Next: <code>multi_head_attention</code>; then compare the assembled block 0 against the committed official HF golden checkpoint.</p>
+  <h3>Common misconceptions</h3><ul><li>Attention is precise weighted retrieval, not vague focus.</li><li>Q/K/V are learned projections, not raw embeddings; K matches, V is carried.</li><li>Softmax is row-wise; output rows retain sequence order.</li><li>GQA shares K/V, not queries or outputs.</li><li>QK-norm does not replace <code>1/√d</code>; RoPE does not replace the causal mask.</li></ul>
+  <div class="crosslinks"><h3>Continue</h3><ul>
+    <li><a href="./05-reading-shapes.html">Learning 05 · shapes</a> · <a href="./08-row-major-strides.html">Learning 08 · layout</a> · <a href="./10-transformer-block-anatomy.html">Learning 10 · block anatomy</a>.</li>
+    <li><a href="../diagrams.html#attention">Interactive attention toy</a> — vary query position and causality.</li>
+    <li>🔧 <a href="https://github.com/curtisalexander/fs/blob/main/src/forward.rs"><code>src/forward.rs</code></a> · <code>ds4</code> <code>flash_attn</code>/<code>softmax</code> · <a href="https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py">HF <code>modeling_qwen3.py</code></a>.</li>
+    <li>📖 <em>Inference Engineering</em> §2.2.3 · 🧭 <a href="https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison">Raschka's architecture comparison</a> · <a href="https://github.com/curtisalexander/fs/blob/main/docs/learnings/11-attention.md">full Markdown note</a>.</li>
+  </ul></div>
+</div></section>
+
+<footer class="site-footer"><div class="container"><p><strong style="font-family:var(--serif)">Failed Star</strong> — learn LLM inference by building it. This learning feeds <strong>M2 — forward pass → logits</strong>.</p><p class="meta">This page distills <code>docs/learnings/11-attention.md</code>. © <span id="year">2026</span> · <a href="https://github.com/curtisalexander/fs">curtisalexander/fs</a></p></div></footer>
+<script src="../assets/js/app.js"></script>
+</body>
+</html>
